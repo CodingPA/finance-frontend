@@ -72,6 +72,15 @@ export interface Tripwire {
   triggered: boolean;
 }
 
+export interface Filing {
+  form: string;
+  filing_date: string;
+  report_date: string;
+  accession_number: string;
+  url: string;
+  description: string;
+}
+
 export interface CompanyReport {
   ticker: string;
   cik: number;
@@ -104,6 +113,7 @@ export interface CompanyReport {
   price_queried_at: string | null;
   shares_float_fmp: SharesFloatFmp | null;
   tripwire: Tripwire;
+  filings: Filing[];
 }
 
 /** Fast path: the latest cached report, no fetch triggered. Returns 200 with

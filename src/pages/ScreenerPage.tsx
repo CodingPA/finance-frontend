@@ -1,8 +1,21 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../lib/api";
 import { getCompanyReport, screenCompany, type CompanyReport, type FiscalSeries } from "../lib/companies";
 import { formatDate, formatMultiple, formatPercent, formatPrice, formatShares, formatUsd, formatYears } from "../lib/format";
+import { extractFieldErrors, extractGenericMessage, type FieldErrors } from "../lib/formErrors";
+import {
+  CLIP_CATEGORY_LABELS,
+  CLIP_SOURCE_TYPE_LABELS,
+  createClip,
+  deleteClip,
+  listClips,
+  type ClipCategory,
+  type ClipSourceType,
+  type ResearchClip,
+} from "../lib/clips";
+import { getJournal, updateJournal, type CompanyJournal, type JournalPatch } from "../lib/journal";
+import { Modal } from "../components/Modal";
 
 const FINANCIAL_ROWS: { key: keyof CompanyReport["financials_by_fy"]; label: string }[] = [
   { key: "revenue", label: "Revenue" },
@@ -30,6 +43,330 @@ function seriesCell(series: FiscalSeries | undefined, fy: number, format: (value
   return value === undefined ? "—" : format(value);
 }
 
+type JournalTextKey = "sells" | "wins" | "kills" | "checkpoint";
+
+const JOURNAL_TEXTAREA_FIELDS: { key: "sells" | "wins" | "kills"; label: string }[] = [
+  { key: "sells", label: "What they sell" },
+  { key: "wins", label: "Why they win" },
+  { key: "kills", label: "What kills them" },
+];
+
+/** Mode 3 deep-dive: the sells/wins/kills/checkpoint thesis row, autosaved
+ *  field-by-field on blur (no explicit Save button). */
+function JournalCard({ ticker, initial }: { ticker: string; initial: CompanyJournal }) {
+  const [journal, setJournal] = useState(initial);
+  const savedRef = useRef(initial);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const commit = async (patch: JournalPatch) => {
+    setSaveState("saving");
+    setSaveError(null);
+    try {
+      const updated = await updateJournal(ticker, patch);
+      setJournal(updated);
+      savedRef.current = updated;
+      setSaveState("saved");
+    } catch (err) {
+      setSaveState("error");
+      setSaveError(extractGenericMessage(err, "Couldn't save."));
+    }
+  };
+
+  const handleTextBlur = (key: JournalTextKey) => {
+    const value = journal[key];
+    if (value === savedRef.current[key]) return;
+    commit({ [key]: value });
+  };
+
+  const handleDateBlur = () => {
+    const value = journal.checkpoint_date;
+    if (value === savedRef.current.checkpoint_date) return;
+    commit({ checkpoint_date: value || null });
+  };
+
+  return (
+    <div className="stack">
+      <div className="page-head">
+        <span className="text-muted">Autosaves on blur</span>
+        {saveState === "saving" && <span className="text-muted">Saving…</span>}
+        {saveState === "saved" && <span className="text-muted">Saved</span>}
+        {saveState === "error" && <span className="form-error">{saveError}</span>}
+      </div>
+      <div className="stack">
+        {JOURNAL_TEXTAREA_FIELDS.map(({ key, label }) => (
+          <div className="field" key={key}>
+            <label htmlFor={`journal-${key}`}>{label}</label>
+            <textarea
+              id={`journal-${key}`}
+              className="input"
+              value={journal[key]}
+              onChange={(e) => setJournal({ ...journal, [key]: e.target.value })}
+              onBlur={() => handleTextBlur(key)}
+            />
+          </div>
+        ))}
+        <div className="field">
+          <label htmlFor="journal-checkpoint">Checkpoint</label>
+          <input
+            id="journal-checkpoint"
+            className="input"
+            value={journal.checkpoint}
+            onChange={(e) => setJournal({ ...journal, checkpoint: e.target.value })}
+            onBlur={() => handleTextBlur("checkpoint")}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="journal-checkpoint-date">Checkpoint date</label>
+          <input
+            id="journal-checkpoint-date"
+            type="date"
+            className="input"
+            value={journal.checkpoint_date ?? ""}
+            onChange={(e) => setJournal({ ...journal, checkpoint_date: e.target.value || null })}
+            onBlur={handleDateBlur}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Mode 3 deep-dive: paste-in research clips, grouped by the six deep-dive
+ *  questions (or "context" for background material). Takes `clips` from its
+ *  parent (rather than owning a local copy) so the tab-label count in
+ *  `ResearchTabs` stays in sync with adds/deletes made here. */
+function ClipsCard({
+  ticker,
+  clips,
+  setClips,
+}: {
+  ticker: string;
+  clips: ResearchClip[];
+  setClips: (update: (prev: ResearchClip[]) => ResearchClip[]) => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [text, setText] = useState("");
+  const [category, setCategory] = useState<ClipCategory>("context");
+  const [sourceType, setSourceType] = useState<ClipSourceType>("other");
+  const [source, setSource] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setFieldErrors({});
+    setSubmitting(true);
+    try {
+      const clip = await createClip(ticker, {
+        label,
+        text,
+        category,
+        source_type: sourceType,
+        source: source || undefined,
+      });
+      setClips((prev) => [clip, ...prev]);
+      setLabel("");
+      setText("");
+      setSource("");
+      setCategory("context");
+      setSourceType("other");
+    } catch (err) {
+      const fields = extractFieldErrors(err);
+      if (Object.keys(fields).length > 0) {
+        setFieldErrors(fields);
+      } else {
+        setError(extractGenericMessage(err, "Couldn't save clip."));
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm("Delete this clip?")) return;
+    try {
+      await deleteClip(ticker, id);
+      setClips((prev) => prev.filter((c) => c.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't delete clip.");
+    }
+  };
+
+  return (
+    <div className="stack">
+      <form className="card elev-sm stack" onSubmit={handleSubmit}>
+        <div className="field">
+          <label htmlFor="clip-label">Label</label>
+          <input id="clip-label" className="input" value={label} onChange={(e) => setLabel(e.target.value)} required />
+          {fieldErrors.label?.map((msg) => (
+            <p className="form-error" key={msg}>
+              {msg}
+            </p>
+          ))}
+        </div>
+        <div className="field">
+          <label htmlFor="clip-text">Text</label>
+          <textarea id="clip-text" className="input" value={text} onChange={(e) => setText(e.target.value)} required />
+          {fieldErrors.text?.map((msg) => (
+            <p className="form-error" key={msg}>
+              {msg}
+            </p>
+          ))}
+        </div>
+        <div className="field">
+          <label htmlFor="clip-category">Category</label>
+          <select
+            id="clip-category"
+            className="input"
+            value={category}
+            onChange={(e) => setCategory(e.target.value as ClipCategory)}
+          >
+            {Object.entries(CLIP_CATEGORY_LABELS).map(([value, categoryLabel]) => (
+              <option key={value} value={value}>
+                {categoryLabel}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="clip-source-type">Source type</label>
+          <select
+            id="clip-source-type"
+            className="input"
+            value={sourceType}
+            onChange={(e) => setSourceType(e.target.value as ClipSourceType)}
+          >
+            {Object.entries(CLIP_SOURCE_TYPE_LABELS).map(([value, sourceTypeLabel]) => (
+              <option key={value} value={value}>
+                {sourceTypeLabel}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="clip-source">Source</label>
+          <input
+            id="clip-source"
+            className="input"
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            placeholder="10-Q Item 7, filed 2026-05-01"
+          />
+        </div>
+        {error && <p className="form-error">{error}</p>}
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
+          {submitting ? "Saving…" : "Add clip"}
+        </button>
+      </form>
+
+      {clips.length === 0 ? (
+        <p className="text-muted">No clips saved yet.</p>
+      ) : (
+        <div className="stack">
+          {clips.map((clip) => (
+            <div className="card elev-sm" key={clip.id}>
+              <div className="page-head">
+                <strong>{clip.label}</strong>
+                <span className="tag tag-outline">{CLIP_CATEGORY_LABELS[clip.category]}</span>
+                <span className="tag tag-neutral">{CLIP_SOURCE_TYPE_LABELS[clip.source_type]}</span>
+              </div>
+              <p className="card-body">{clip.text}</p>
+              {clip.source && <div className="card-meta">{clip.source}</div>}
+              <div className="card-meta">{formatDate(clip.created_at)}</div>
+              <button type="button" className="btn btn-ghost" onClick={() => handleDelete(clip.id)}>
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Mode 3 deep-dive section, shown once a ticker is tracked (report exists)
+ *  regardless of whether it's been screened yet -- notes don't depend on
+ *  the automated financial screen having run. */
+function ResearchPanel({ ticker }: { ticker: string }) {
+  const [journal, setJournal] = useState<CompanyJournal | null>(null);
+  const [clips, setClips] = useState<ResearchClip[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setJournal(null);
+    setClips(null);
+    setLoadError(null);
+    let cancelled = false;
+    Promise.all([getJournal(ticker), listClips(ticker)])
+      .then(([j, c]) => {
+        if (cancelled) return;
+        setJournal(j);
+        setClips(c);
+      })
+      .catch((err) => {
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : "Something went wrong.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
+
+  if (loadError) {
+    return (
+      <div className="card elev-sm">
+        <p className="form-error">{loadError}</p>
+      </div>
+    );
+  }
+
+  if (!journal || !clips) {
+    return <p className="text-muted">Loading research…</p>;
+  }
+
+  return <ResearchTabs ticker={ticker} journal={journal} clips={clips} />;
+}
+
+function ResearchTabs({
+  ticker,
+  journal,
+  clips: initialClips,
+}: {
+  ticker: string;
+  journal: CompanyJournal;
+  clips: ResearchClip[];
+}) {
+  const [tab, setTab] = useState<"journal" | "clips">("journal");
+  const [clips, setClips] = useState(initialClips);
+
+  return (
+    <div className="stack">
+      <div className="seg" role="tablist" aria-label="Research section">
+        <label className="seg-opt">
+          <input type="radio" name="research-tab" checked={tab === "journal"} onChange={() => setTab("journal")} />
+          Journal
+        </label>
+        <label className="seg-opt">
+          <input type="radio" name="research-tab" checked={tab === "clips"} onChange={() => setTab("clips")} />
+          Clips{clips.length > 0 ? ` (${clips.length})` : ""}
+        </label>
+      </div>
+      {/* Both stay mounted (just hidden) rather than switching on `tab`
+          directly -- JournalCard holds its own edit/save state locally, and
+          unmounting on tab-away would remount from the stale `initial`
+          prop next time, silently reverting anything saved in between. */}
+      <div style={{ display: tab === "journal" ? undefined : "none" }}>
+        <JournalCard ticker={ticker} initial={journal} />
+      </div>
+      <div style={{ display: tab === "clips" ? undefined : "none" }}>
+        <ClipsCard ticker={ticker} clips={clips} setClips={setClips} />
+      </div>
+    </div>
+  );
+}
+
 export function ScreenerPage() {
   const { ticker: tickerParam } = useParams();
   const navigate = useNavigate();
@@ -43,6 +380,7 @@ export function ScreenerPage() {
   // false`, which means the Company row exists but no screen has run yet.
   const [untracked, setUntracked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [researchOpen, setResearchOpen] = useState(false);
 
   useEffect(() => {
     setInput(tickerParam ?? "");
@@ -119,6 +457,14 @@ export function ScreenerPage() {
 
       {loading && <p className="text-muted">Loading {tickerParam}…</p>}
       {error && <p className="form-error">{error}</p>}
+
+      {!loading && report && (
+        <div className="page-actions">
+          <button type="button" className="btn btn-primary" onClick={() => setResearchOpen(true)}>
+            + Research
+          </button>
+        </div>
+      )}
 
       {!loading && tickerParam && (untracked || (report && !report.screened)) && (
         <div className="card elev-sm">
@@ -233,7 +579,47 @@ export function ScreenerPage() {
               </tbody>
             </table>
           </div>
+
+          {report.filings.length > 0 && (
+            <div className="card elev-sm">
+              <div className="card-kicker">Filings</div>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>Form</th>
+                      <th>Filed</th>
+                      <th>Period</th>
+                      <th>Description</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {report.filings.map((filing) => (
+                      <tr key={filing.accession_number}>
+                        <td>{filing.form}</td>
+                        <td>{formatDate(filing.filing_date)}</td>
+                        <td>{formatDate(filing.report_date)}</td>
+                        <td>{filing.description}</td>
+                        <td>
+                          <a href={filing.url} target="_blank" rel="noopener noreferrer">
+                            View on EDGAR
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
+      )}
+
+      {researchOpen && report && (
+        <Modal title={`${report.ticker} — Research`} onClose={() => setResearchOpen(false)} wide>
+          <ResearchPanel ticker={report.ticker} />
+        </Modal>
       )}
     </div>
   );

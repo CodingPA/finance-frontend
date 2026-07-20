@@ -243,6 +243,7 @@ textarea.input { min-height: 90px; resize: vertical; }
   padding: var(--space-4); border-radius: var(--radius-lg);
   background: var(--color-surface); box-shadow: var(--shadow-lg);
 }
+.dialog-lg { width: min(640px, 100%); max-height: 85vh; overflow-y: auto; }
 .dialog-title {
   font-family: var(--font-heading); font-weight: var(--font-heading-weight);
   font-size: 20px;

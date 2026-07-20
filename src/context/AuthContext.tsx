@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import * as api from "../lib/api";
 import type { AuthUser } from "../lib/api";
+import { realtime } from "../lib/ws";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -30,6 +31,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // The realtime socket needs the same token the HTTP client holds, so it
+  // only ever connects once auth is settled -- and drops the moment we're not.
+  useEffect(() => {
+    if (status === "authenticated") {
+      realtime.connect();
+    } else {
+      realtime.disconnect();
+    }
+  }, [status]);
 
   const login = useCallback(async (email: string, password: string) => {
     const loggedInUser = await api.login(email, password);

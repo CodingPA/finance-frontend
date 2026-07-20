@@ -1,8 +1,17 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useRealtimeStatus } from "../hooks/useRealtimeStatus";
+
+const REALTIME_LABEL = {
+  idle: "Offline",
+  connecting: "Connecting…",
+  open: "Live",
+  closed: "Reconnecting…",
+} as const;
 
 export function NavBar() {
   const { user, status, logout } = useAuth();
+  const wsStatus = useRealtimeStatus();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -17,6 +26,9 @@ export function NavBar() {
       </Link>
       {status === "authenticated" && user ? (
         <>
+          <span className={`tag ${wsStatus === "open" ? "tag-accent" : "tag-neutral"}`} title="Realtime connection">
+            {REALTIME_LABEL[wsStatus]}
+          </span>
           <span className="text-muted">{user.name || user.email}</span>
           <button type="button" className="btn btn-secondary" onClick={handleLogout}>
             Log out

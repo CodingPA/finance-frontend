@@ -40,6 +40,11 @@ export class ApiError extends Error {
 // In-memory only — never persisted, per the auth doc's recommendation.
 let accessToken: string | null = null;
 
+/** Current access token, e.g. for the WebSocket handshake (`?token=`). */
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
 function authHeader(): HeadersInit {
   return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
@@ -50,7 +55,9 @@ async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   return data as T;
 }
 
-async function tryRefresh(): Promise<boolean> {
+/** Refresh the access token in place. Exported for the WebSocket client to
+ *  reuse on a 4001 (stale token) close before it retries. */
+export async function refreshAccessToken(): Promise<boolean> {
   const refresh = localStorage.getItem(REFRESH_STORAGE_KEY);
   if (!refresh) return false;
 
@@ -88,7 +95,7 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
 
   let res = await doFetch();
   if (res.status === 401 && accessToken !== null) {
-    const refreshed = await tryRefresh();
+    const refreshed = await refreshAccessToken();
     if (refreshed) res = await doFetch();
   }
   return res;
@@ -152,7 +159,7 @@ export async function logout(): Promise<void> {
 
 /** Called once on app load: silently refresh, then hydrate the user. */
 export async function bootstrapAuth(): Promise<AuthUser | null> {
-  const refreshed = await tryRefresh();
+  const refreshed = await refreshAccessToken();
   if (!refreshed) return null;
 
   try {

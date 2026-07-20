@@ -1,0 +1,46 @@
+/* App-level layout only — colors, type and components all come from modernist.css tokens/classes. */
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.page {
+  flex: 1;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-4);
+}
+
+.auth-page {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6) var(--space-4);
+}
+
+.auth-card {
+  width: min(400px, 100%);
+}
+
+.auth-card .card-title {
+  font-size: 25px;
+  margin-bottom: var(--space-1);
+}
+
+.stack {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.form-error {
+  font-size: 13px;
+  color: var(--color-accent-700);
+}
+
+.form-note {
+  font-size: 13px;
+  text-align: center;
+}

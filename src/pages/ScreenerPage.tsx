@@ -38,13 +38,16 @@ export function ScreenerPage() {
   const [report, setReport] = useState<CompanyReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [screening, setScreening] = useState(false);
-  const [notScreened, setNotScreened] = useState(false);
+  // True on a 404 -- ticker isn't tracked/known at all, so there's no report
+  // to read a `screened` flag off of. Distinct from `report.screened ===
+  // false`, which means the Company row exists but no screen has run yet.
+  const [untracked, setUntracked] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setInput(tickerParam ?? "");
     setReport(null);
-    setNotScreened(false);
+    setUntracked(false);
     setError(null);
     if (!tickerParam) return;
 
@@ -57,7 +60,7 @@ export function ScreenerPage() {
       .catch((err) => {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 404) {
-          setNotScreened(true);
+          setUntracked(true);
         } else {
           setError(err instanceof Error ? err.message : "Something went wrong.");
         }
@@ -85,7 +88,7 @@ export function ScreenerPage() {
     try {
       const data = await screenCompany(tickerParam, maxAgeDays);
       setReport(data);
-      setNotScreened(false);
+      setUntracked(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -117,16 +120,22 @@ export function ScreenerPage() {
       {loading && <p className="text-muted">Loading {tickerParam}…</p>}
       {error && <p className="form-error">{error}</p>}
 
-      {!loading && notScreened && tickerParam && (
+      {!loading && tickerParam && (untracked || (report && !report.screened)) && (
         <div className="card elev-sm">
-          <p className="card-body">{tickerParam} hasn't been screened yet.</p>
+          {report ? (
+            <div className="page-head">
+              <h3>{report.name}</h3>
+              <span className="tag tag-outline">{report.ticker}</span>
+            </div>
+          ) : null}
+          <p className="card-body">{report ? report.ticker : tickerParam} hasn't been screened yet.</p>
           <button type="button" className="btn btn-primary" onClick={() => runScreen()} disabled={screening}>
             {screening ? "Screening…" : "Run screen"}
           </button>
         </div>
       )}
 
-      {!loading && report && (
+      {!loading && report && report.screened && (
         <>
           <div className="page-head">
             <h3>{report.name}</h3>

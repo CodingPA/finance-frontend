@@ -146,17 +146,28 @@ export function DashboardPage() {
                       ))}
                     </div>
                   </td>
-                  <td>{formatPrice(c.price)}</td>
-                  <td>{formatUsd(c.market_cap)}</td>
-                  <td>{formatPercent(c.revenue_growth_pct)}</td>
-                  <td>{formatUsd(c.fcf)}</td>
-                  <td>{formatYears(c.runway_years)}</td>
-                  <td>
-                    <span className={`tag ${c.tripwire_triggered ? "tag-accent" : "tag-neutral"}`}>
-                      {c.tripwire_triggered ? "Triggered" : "Clean"}
-                    </span>
-                  </td>
-                  <td>{formatDate(c.updated_at)}</td>
+                  {c.screened ? (
+                    <>
+                      <td>{formatPrice(c.price)}</td>
+                      <td>{formatUsd(c.market_cap)}</td>
+                      <td>{formatPercent(c.revenue_growth_pct)}</td>
+                      <td>{formatUsd(c.fcf)}</td>
+                      <td>{formatYears(c.runway_years)}</td>
+                      <td>
+                        <span className={`tag ${c.tripwire_triggered ? "tag-accent" : "tag-neutral"}`}>
+                          {c.tripwire_triggered ? "Triggered" : "Clean"}
+                        </span>
+                      </td>
+                      <td>{formatDate(c.updated_at)}</td>
+                    </>
+                  ) : (
+                    <td colSpan={7}>
+                      <span className="tag tag-neutral">Not screened</span>{" "}
+                      <Link to={`/screen/${c.ticker}`} className="btn btn-ghost">
+                        Screen now
+                      </Link>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

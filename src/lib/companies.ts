@@ -12,6 +12,7 @@ export type CompanyOrigin = "system" | "user";
 export interface DashboardCompany {
   ticker: string;
   name: string;
+  screened: boolean;
   price: number | null;
   market_cap: number | null;
   revenue_growth_pct: number | null;
@@ -75,6 +76,7 @@ export interface CompanyReport {
   ticker: string;
   cik: number;
   name: string;
+  screened: boolean;
   fiscal_years: number[];
   financials_by_fy: {
     revenue?: FiscalSeries;
@@ -104,9 +106,10 @@ export interface CompanyReport {
   tripwire: Tripwire;
 }
 
-/** Fast path: the latest cached report, no fetch triggered. 404s if this
- *  ticker has never been screened -- callers should catch that and offer
- *  `screenCompany` instead. */
+/** Fast path: the latest cached report, no fetch triggered. Returns 200 with
+ *  `screened: false` and empty/null financial fields for a tracked-but-
+ *  never-screened ticker; callers should check that flag (not just catch a
+ *  404) and offer `screenCompany` when it's false. */
 export async function getCompanyReport(ticker: string): Promise<CompanyReport> {
   const res = await apiFetch(`/companies/${encodeURIComponent(ticker)}/`);
   return parseJsonOrThrow<CompanyReport>(res);

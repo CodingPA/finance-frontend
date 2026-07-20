@@ -26,6 +26,7 @@ export function NavBar() {
       </Link>
       {status === "authenticated" && user ? (
         <>
+          <Link to="/screen">Screener</Link>
           <span className={`tag ${wsStatus === "open" ? "tag-accent" : "tag-neutral"}`} title="Realtime connection">
             {REALTIME_LABEL[wsStatus]}
           </span>

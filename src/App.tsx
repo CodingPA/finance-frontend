@@ -5,6 +5,7 @@ import { ProtectedRoute } from "./components/ProtectedRoute";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { ScreenerPage } from "./pages/ScreenerPage";
 
 export function App() {
   return (
@@ -19,6 +20,22 @@ export function App() {
             element={
               <ProtectedRoute>
                 <DashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/screen"
+            element={
+              <ProtectedRoute>
+                <ScreenerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/screen/:ticker"
+            element={
+              <ProtectedRoute>
+                <ScreenerPage />
               </ProtectedRoute>
             }
           />

@@ -27,14 +27,21 @@ export class ApiError extends Error {
   body: unknown;
 
   constructor(status: number, body: unknown) {
-    const detail =
-      body && typeof body === "object" && "detail" in body && typeof (body as { detail?: unknown }).detail === "string"
-        ? (body as { detail: string }).detail
-        : "Request failed";
-    super(detail);
+    super(extractErrorDetail(body));
     this.status = status;
     this.body = body;
   }
+}
+
+// Most errors are {detail: "..."}, but some (e.g. the screen endpoint's
+// "ticker not found") come back as a bare array of message strings instead.
+function extractErrorDetail(body: unknown): string {
+  if (Array.isArray(body) && typeof body[0] === "string") return body[0];
+  if (body && typeof body === "object" && "detail" in body) {
+    const detail = (body as { detail?: unknown }).detail;
+    if (typeof detail === "string") return detail;
+  }
+  return "Request failed";
 }
 
 // In-memory only — never persisted, per the auth doc's recommendation.
@@ -49,7 +56,8 @@ function authHeader(): HeadersInit {
   return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
 }
 
-async function parseJsonOrThrow<T>(res: Response): Promise<T> {
+/** Exported for reuse by other resource clients (e.g. lib/companies.ts). */
+export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new ApiError(res.status, data);
   return data as T;

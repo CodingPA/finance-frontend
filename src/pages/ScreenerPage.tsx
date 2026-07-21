@@ -2,7 +2,16 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ApiError } from "../lib/api";
 import { getCompanyReport, screenCompany, type CompanyReport, type FiscalSeries } from "../lib/companies";
-import { formatDate, formatMultiple, formatPercent, formatPrice, formatShares, formatUsd, formatYears } from "../lib/format";
+import {
+  formatDate,
+  formatDateTime,
+  formatMultiple,
+  formatPercent,
+  formatPrice,
+  formatShares,
+  formatUsd,
+  formatYears,
+} from "../lib/format";
 import { extractFieldErrors, extractGenericMessage, type FieldErrors } from "../lib/formErrors";
 import {
   CLIP_CATEGORY_LABELS,
@@ -15,6 +24,7 @@ import {
   type ResearchClip,
 } from "../lib/clips";
 import { getJournal, updateJournal, type CompanyJournal, type JournalPatch } from "../lib/journal";
+import { realtime } from "../lib/ws";
 import { Modal } from "../components/Modal";
 
 const FINANCIAL_ROWS: { key: keyof CompanyReport["financials_by_fy"]; label: string }[] = [
@@ -375,6 +385,9 @@ export function ScreenerPage() {
   const [report, setReport] = useState<CompanyReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [screening, setScreening] = useState(false);
+  // "queued" as soon as the POST is accepted, "running" once screen.progress
+  // confirms the Celery task actually started -- both just drive button text.
+  const [screenStatus, setScreenStatus] = useState<"queued" | "running" | null>(null);
   // True on a 404 -- ticker isn't tracked/known at all, so there's no report
   // to read a `screened` flag off of. Distinct from `report.screened ===
   // false`, which means the Company row exists but no screen has run yet.
@@ -412,6 +425,36 @@ export function ScreenerPage() {
     };
   }, [tickerParam]);
 
+  // Screen outcomes arrive over the realtime socket, not the POST response
+  // (which only queues the Celery task) -- see lib/companies.ts::screenCompany.
+  useEffect(() => {
+    if (!tickerParam) return;
+
+    const offProgress = realtime.on("screen.progress", (message) => {
+      if (message.ticker !== tickerParam) return;
+      setScreenStatus("running");
+    });
+    const offComplete = realtime.on("screen.complete", (message) => {
+      if (message.ticker !== tickerParam) return;
+      setReport(message.report as CompanyReport);
+      setUntracked(false);
+      setScreening(false);
+      setScreenStatus(null);
+    });
+    const offError = realtime.on("screen.error", (message) => {
+      if (message.ticker !== tickerParam) return;
+      setError(typeof message.message === "string" ? message.message : "Screen failed.");
+      setScreening(false);
+      setScreenStatus(null);
+    });
+
+    return () => {
+      offProgress();
+      offComplete();
+      offError();
+    };
+  }, [tickerParam]);
+
   const handleSearch = (e: FormEvent) => {
     e.preventDefault();
     const normalized = input.trim().toUpperCase();
@@ -422,15 +465,14 @@ export function ScreenerPage() {
   const runScreen = async (maxAgeDays?: number) => {
     if (!tickerParam) return;
     setScreening(true);
+    setScreenStatus("queued");
     setError(null);
     try {
-      const data = await screenCompany(tickerParam, maxAgeDays);
-      setReport(data);
-      setUntracked(false);
+      await screenCompany(tickerParam, maxAgeDays);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
       setScreening(false);
+      setScreenStatus(null);
+      setError(err instanceof Error ? err.message : "Something went wrong.");
     }
   };
 
@@ -476,7 +518,7 @@ export function ScreenerPage() {
           ) : null}
           <p className="card-body">{report ? report.ticker : tickerParam} hasn't been screened yet.</p>
           <button type="button" className="btn btn-primary" onClick={() => runScreen()} disabled={screening}>
-            {screening ? "Screening…" : "Run screen"}
+            {screening ? (screenStatus === "running" ? "Running…" : "Queued…") : "Run screen"}
           </button>
         </div>
       )}
@@ -491,7 +533,7 @@ export function ScreenerPage() {
 
           <div className="page-actions">
             <button type="button" className="btn btn-secondary" onClick={() => runScreen(0)} disabled={screening}>
-              {screening ? "Refreshing…" : "Refresh (force)"}
+              {screening ? (screenStatus === "running" ? "Running…" : "Queued…") : "Refresh (force)"}
             </button>
           </div>
 
@@ -500,7 +542,7 @@ export function ScreenerPage() {
               <div className="card-kicker">Price</div>
               <div className="card-title">{formatPrice(report.price)}</div>
               <div className="card-meta">
-                {report.price_queried_at ? `as of ${formatDate(report.price_queried_at)}` : "FMP_API_KEY not set"}
+                {report.price_queried_at ? `as of ${formatDateTime(report.price_queried_at)}` : "FMP_API_KEY not set"}
               </div>
             </div>
             <div className="card elev-sm">

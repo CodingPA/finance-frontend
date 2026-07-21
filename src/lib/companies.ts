@@ -2,7 +2,7 @@
 // /companies/), per-user status (PATCH .../status/), and the per-ticker
 // screen/report pair (POST .../screen/, GET .../). All auth-required.
 
-import { apiFetch, parseJsonOrThrow } from "./api";
+import { apiFetch, parseJsonOrThrow, ApiError } from "./api";
 
 export type CompanyStatus = "pending" | "shortlisted" | "killed";
 export type CompanyOrigin = "system" | "user";
@@ -125,13 +125,19 @@ export async function getCompanyReport(ticker: string): Promise<CompanyReport> {
   return parseJsonOrThrow<CompanyReport>(res);
 }
 
-/** Runs Mode 1 (Screen): fetches fresh EDGAR/FMP data (reusing anything
- *  cached under `maxAgeDays` old) and returns the report. Pass 0 to force a
- *  full refresh. */
-export async function screenCompany(ticker: string, maxAgeDays?: number): Promise<CompanyReport> {
+/** Queues Mode 1 (Screen) as a Celery task and returns as soon as it's
+ *  enqueued (`202`) -- not once it's finished. Pass 0 to force a full
+ *  refresh. The outcome arrives later over the realtime socket as
+ *  `screen.progress` then exactly one of `screen.complete` / `screen.error`
+ *  for this ticker (see lib/ws.ts and docs/websockets.md); this call only
+ *  reports whether the ticker was accepted for screening. */
+export async function screenCompany(ticker: string, maxAgeDays?: number): Promise<void> {
   const res = await apiFetch(`/companies/${encodeURIComponent(ticker)}/screen/`, {
     method: "POST",
     body: JSON.stringify(maxAgeDays !== undefined ? { max_age_days: maxAgeDays } : {}),
   });
-  return parseJsonOrThrow<CompanyReport>(res);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body);
+  }
 }

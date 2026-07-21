@@ -476,6 +476,10 @@ export function ScreenerPage() {
     }
   };
 
+  // API returns fiscal_years ascending; the metric table reads left-to-right
+  // as most-recent-first, so reverse it just for display.
+  const displayFiscalYears = report ? [...report.fiscal_years].sort((a, b) => b - a) : [];
+
   return (
     <div className="page">
       <h2>Screener</h2>
@@ -584,7 +588,7 @@ export function ScreenerPage() {
               <thead>
                 <tr>
                   <th>Metric</th>
-                  {report.fiscal_years.map((fy) => (
+                  {displayFiscalYears.map((fy) => (
                     <th key={fy}>{fy}</th>
                   ))}
                 </tr>
@@ -595,7 +599,7 @@ export function ScreenerPage() {
                   return (
                     <tr key={key}>
                       <td>{label}</td>
-                      {report.fiscal_years.map((fy) => (
+                      {displayFiscalYears.map((fy) => (
                         <td key={fy}>{seriesCell(series, fy, formatUsd)}</td>
                       ))}
                     </tr>
@@ -606,7 +610,7 @@ export function ScreenerPage() {
                   return (
                     <tr key={key}>
                       <td>{label}</td>
-                      {report.fiscal_years.map((fy) => (
+                      {displayFiscalYears.map((fy) => (
                         <td key={fy}>{seriesCell(series, fy, format)}</td>
                       ))}
                     </tr>
@@ -614,7 +618,7 @@ export function ScreenerPage() {
                 })}
                 <tr>
                   <td>Balance-sheet shares</td>
-                  {report.fiscal_years.map((fy) => (
+                  {displayFiscalYears.map((fy) => (
                     <td key={fy}>{seriesCell(report.shares.balance_sheet_by_fy, fy, formatShares)}</td>
                   ))}
                 </tr>

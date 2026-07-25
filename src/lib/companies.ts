@@ -6,6 +6,11 @@ import { apiFetch, parseJsonOrThrow, ApiError } from "./api";
 
 export type CompanyStatus = "pending" | "shortlisted" | "killed";
 export type CompanyOrigin = "system" | "user";
+/** "computed" -> runway_years holds a real figure. "profitable" -> FCF >= 0,
+ *  runway isn't a meaningful question. "unknown" -> burning cash but missing
+ *  the data to compute it. runway_years is null for both non-"computed" cases
+ *  -- switch on this instead of inferring state from FCF's sign. */
+export type RunwayStatus = "computed" | "profitable" | "unknown";
 
 /** One row of the user's dashboard -- latest-fiscal-year summary only, not
  *  the full history (that's `CompanyReport`, below). */
@@ -18,6 +23,8 @@ export interface DashboardCompany {
   revenue_growth_pct: number | null;
   fcf: number | null;
   runway_years: number | null;
+  runway_status: RunwayStatus;
+  fcf_approximated: boolean;
   tripwire_triggered: boolean;
   updated_at: string;
   status: CompanyStatus;
@@ -102,6 +109,8 @@ export interface CompanyReport {
     fcf_by_fy?: FiscalSeries;
     revenue_growth_pct_by_fy?: FiscalSeries;
     runway_years?: number | null;
+    runway_status: RunwayStatus;
+    fcf_approximated: boolean;
     ps_trailing?: number | null;
   };
   shares: {

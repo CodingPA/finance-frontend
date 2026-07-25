@@ -8,9 +8,9 @@ import {
   formatMultiple,
   formatPercent,
   formatPrice,
+  formatRunway,
   formatShares,
   formatUsd,
-  formatYears,
 } from "../lib/format";
 import { extractFieldErrors, extractGenericMessage, type FieldErrors } from "../lib/formErrors";
 import {
@@ -26,27 +26,33 @@ import {
 import { getJournal, updateJournal, type CompanyJournal, type JournalPatch } from "../lib/journal";
 import { realtime } from "../lib/ws";
 import { Modal } from "../components/Modal";
+import { InfoTip } from "../components/InfoTip";
+import { DataFlag } from "../components/DataFlag";
 
-const FINANCIAL_ROWS: { key: keyof CompanyReport["financials_by_fy"]; label: string }[] = [
-  { key: "revenue", label: "Revenue" },
-  { key: "gross_profit", label: "Gross profit" },
-  { key: "net_loss", label: "Net income / (loss)" },
-  { key: "operating_cash_flow", label: "Operating cash flow" },
-  { key: "capex", label: "Capex" },
-  { key: "stock_based_comp", label: "Stock-based comp" },
-  { key: "cash", label: "Cash & ST investments" },
-  { key: "total_debt", label: "Total debt" },
+const FINANCIAL_ROWS: { key: keyof CompanyReport["financials_by_fy"]; label: string; description: string }[] = [
+  { key: "revenue", label: "Revenue", description: "Total revenue recognized for the fiscal year, as reported on the income statement." },
+  { key: "gross_profit", label: "Gross profit", description: "Revenue minus cost of revenue (COGS) for the year." },
+  { key: "net_loss", label: "Net income / (loss)", description: "Bottom-line profit or loss after all expenses, interest, and taxes." },
+  { key: "operating_cash_flow", label: "Operating cash flow", description: "Cash generated or consumed by core business operations, per the cash flow statement." },
+  { key: "capex", label: "Capex", description: "Cash spent on property, plant, and equipment during the year." },
+  { key: "stock_based_comp", label: "Stock-based comp", description: "Non-cash compensation expense from equity awards granted to employees." },
+  { key: "cash", label: "Cash & ST investments", description: "Cash, cash equivalents, and short-term investments on the balance sheet." },
+  { key: "total_debt", label: "Total debt", description: "Sum of short- and long-term debt outstanding on the balance sheet." },
 ];
 
 const DERIVED_SERIES_ROWS: {
   key: "gross_margin_pct_by_fy" | "fcf_by_fy" | "revenue_growth_pct_by_fy";
   label: string;
   format: (value: number) => string;
+  description: string;
 }[] = [
-  { key: "gross_margin_pct_by_fy", label: "Gross margin", format: formatPercent },
-  { key: "fcf_by_fy", label: "Free cash flow", format: formatUsd },
-  { key: "revenue_growth_pct_by_fy", label: "Revenue growth", format: formatPercent },
+  { key: "gross_margin_pct_by_fy", label: "Gross margin", format: formatPercent, description: "Gross profit as a percentage of revenue." },
+  { key: "fcf_by_fy", label: "Free cash flow", format: formatUsd, description: "Operating cash flow minus capex — cash left over after maintaining the business." },
+  { key: "revenue_growth_pct_by_fy", label: "Revenue growth", format: formatPercent, description: "Year-over-year percentage change in revenue." },
 ];
+
+const BALANCE_SHEET_SHARES_DESCRIPTION =
+  "Shares outstanding as reported on the balance sheet / equity statement for that fiscal year.";
 
 function seriesCell(series: FiscalSeries | undefined, fy: number, format: (value: number) => string): string {
   const value = series?.[String(fy)];
@@ -348,19 +354,19 @@ function ResearchTabs({
   journal: CompanyJournal;
   clips: ResearchClip[];
 }) {
-  const [tab, setTab] = useState<"journal" | "clips">("journal");
+  const [tab, setTab] = useState<"journal" | "clips">("clips");
   const [clips, setClips] = useState(initialClips);
 
   return (
     <div className="stack">
       <div className="seg" role="tablist" aria-label="Research section">
         <label className="seg-opt">
-          <input type="radio" name="research-tab" checked={tab === "journal"} onChange={() => setTab("journal")} />
-          Journal
-        </label>
-        <label className="seg-opt">
           <input type="radio" name="research-tab" checked={tab === "clips"} onChange={() => setTab("clips")} />
           Clips{clips.length > 0 ? ` (${clips.length})` : ""}
+        </label>
+        <label className="seg-opt">
+          <input type="radio" name="research-tab" checked={tab === "journal"} onChange={() => setTab("journal")} />
+          Journal
         </label>
       </div>
       {/* Both stay mounted (just hidden) rather than switching on `tab`
@@ -558,8 +564,13 @@ export function ScreenerPage() {
               <div className="card-title">{formatMultiple(report.derived.ps_trailing)}</div>
             </div>
             <div className="card elev-sm">
-              <div className="card-kicker">Runway</div>
-              <div className="card-title">{formatYears(report.derived.runway_years)}</div>
+              <div className="card-kicker">
+                Runway
+                {report.derived.runway_status === "computed" && report.derived.fcf_approximated && (
+                  <DataFlag text="Estimated from operating cash flow only -- capex not reported for this fiscal year." />
+                )}
+              </div>
+              <div className="card-title">{formatRunway(report.derived.runway_status, report.derived.runway_years)}</div>
             </div>
             <div className="card elev-sm">
               <div className="card-kicker">Cover-page shares</div>
@@ -594,22 +605,28 @@ export function ScreenerPage() {
                 </tr>
               </thead>
               <tbody>
-                {FINANCIAL_ROWS.map(({ key, label }) => {
+                {FINANCIAL_ROWS.map(({ key, label, description }) => {
                   const series = report.financials_by_fy[key];
                   return (
                     <tr key={key}>
-                      <td>{label}</td>
+                      <td>
+                        {label}
+                        <InfoTip text={description} />
+                      </td>
                       {displayFiscalYears.map((fy) => (
                         <td key={fy}>{seriesCell(series, fy, formatUsd)}</td>
                       ))}
                     </tr>
                   );
                 })}
-                {DERIVED_SERIES_ROWS.map(({ key, label, format }) => {
+                {DERIVED_SERIES_ROWS.map(({ key, label, format, description }) => {
                   const series = report.derived[key];
                   return (
                     <tr key={key}>
-                      <td>{label}</td>
+                      <td>
+                        {label}
+                        <InfoTip text={description} />
+                      </td>
                       {displayFiscalYears.map((fy) => (
                         <td key={fy}>{seriesCell(series, fy, format)}</td>
                       ))}
@@ -617,7 +634,10 @@ export function ScreenerPage() {
                   );
                 })}
                 <tr>
-                  <td>Balance-sheet shares</td>
+                  <td>
+                    Balance-sheet shares
+                    <InfoTip text={BALANCE_SHEET_SHARES_DESCRIPTION} />
+                  </td>
                   {displayFiscalYears.map((fy) => (
                     <td key={fy}>{seriesCell(report.shares.balance_sheet_by_fy, fy, formatShares)}</td>
                   ))}

@@ -1,3 +1,5 @@
+import type { RunwayStatus } from "./companies";
+
 export function formatUsd(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   const sign = value < 0 ? "-" : "";
@@ -26,6 +28,14 @@ export function formatMultiple(value: number | null | undefined): string {
 export function formatYears(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return `${value.toFixed(1)} yr`;
+}
+
+/** Runway has two null-but-distinct states alongside the computed figure --
+ *  render each explicitly rather than collapsing them into the same "—". */
+export function formatRunway(status: RunwayStatus, years: number | null | undefined): string {
+  if (status === "profitable") return "Profitable";
+  if (status === "unknown") return "Unknown";
+  return formatYears(years);
 }
 
 export function formatShares(value: number | null | undefined): string {

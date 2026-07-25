@@ -81,3 +81,53 @@
 .table-wrap {
   overflow-x: auto;
 }
+
+/* — info tooltips — */
+.info-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-left: var(--space-1);
+  border: 1px solid var(--color-neutral-500);
+  color: var(--color-neutral-600);
+  font-size: 10px;
+  font-family: var(--font-heading);
+  line-height: 1;
+  cursor: help;
+  vertical-align: middle;
+}
+
+.info-tip-bubble {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: max-content;
+  max-width: 240px;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+  z-index: 10;
+}
+
+.info-tip:hover .info-tip-bubble,
+.info-tip:focus-visible .info-tip-bubble {
+  opacity: 1;
+}
+
+.info-tip-flag {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: var(--font-heading-weight);
+}

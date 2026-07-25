@@ -9,7 +9,8 @@ import {
   type CompanyStatus,
   type DashboardCompany,
 } from "../lib/companies";
-import { formatDate, formatPercent, formatPrice, formatUsd, formatYears } from "../lib/format";
+import { formatDate, formatPercent, formatPrice, formatRunway, formatUsd } from "../lib/format";
+import { DataFlag } from "../components/DataFlag";
 
 const STATUS_OPTIONS: { value: CompanyStatus; label: string }[] = [
   { value: "pending", label: "Pending" },
@@ -152,7 +153,12 @@ export function DashboardPage() {
                       <td>{formatUsd(c.market_cap)}</td>
                       <td>{formatPercent(c.revenue_growth_pct)}</td>
                       <td>{formatUsd(c.fcf)}</td>
-                      <td>{formatYears(c.runway_years)}</td>
+                      <td>
+                        {formatRunway(c.runway_status, c.runway_years)}
+                        {c.runway_status === "computed" && c.fcf_approximated && (
+                          <DataFlag text="Estimated from operating cash flow only -- capex not reported for this fiscal year." />
+                        )}
+                      </td>
                       <td>
                         <span className={`tag ${c.tripwire_triggered ? "tag-accent" : "tag-neutral"}`}>
                           {c.tripwire_triggered ? "Triggered" : "Clean"}

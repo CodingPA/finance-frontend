@@ -1,6 +1,8 @@
-// Floating chat button + side panel, mounted globally in App.tsx. Sends
-// messages to the chat assistant (first slice: stateless, no tools) and
-// renders the streamed reply as it arrives over the realtime socket.
+// Floating chat button + side panel, mounted globally in App.tsx. Every
+// click on the floating button starts a fresh conversation; the small
+// history button lets you switch back to a previous one. Sends stream back
+// over the realtime socket, tagged with conversation_id so a stale/other
+// conversation's tokens don't land in the wrong bubble.
 
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react";
 import { useLocation } from "react-router-dom";
@@ -10,7 +12,15 @@ import { useAuth } from "../context/AuthContext";
 import { ApiError } from "../lib/api";
 import { realtime } from "../lib/ws";
 import { listDashboard, type DashboardCompany } from "../lib/companies";
-import { listAssistantModels, sendAssistantMessage, type AssistantModel } from "../lib/assistant";
+import {
+  listAssistantModels,
+  listConversations,
+  createConversation,
+  listConversationMessages,
+  sendConversationMessage,
+  type AssistantModel,
+  type AssistantConversation,
+} from "../lib/assistant";
 
 interface ChatMessage {
   id: number;
@@ -49,18 +59,31 @@ export function ChatAssistant() {
   const [ticker, setTicker] = useState<string>(ALL_TICKERS);
   const [models, setModels] = useState<AssistantModel[]>([]);
   const [modelId, setModelId] = useState<string>("");
+  const [conversationId, setConversationId] = useState<number | null>(null);
+  const [conversations, setConversations] = useState<AssistantConversation[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const nextId = useRef(0);
+  // Negative, decrementing -- server message ids are positive, so local
+  // (not-yet-persisted) bubble ids can never collide with a loaded history row.
+  const nextLocalId = useRef(-1);
   const streamingIdRef = useRef<number | null>(null);
+  const activeConversationIdRef = useRef<number | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Default the ticker to whatever screen the user is on, and load the
-  // tracked-company + model lists, each time the panel is opened.
+  // Every click of the floating button is a new chat: reset to a blank,
+  // not-yet-created conversation and reload the ticker/model context.
   useEffect(() => {
     if (!open) return;
     setTicker(tickerFromPath(location.pathname) ?? ALL_TICKERS);
+    setConversationId(null);
+    activeConversationIdRef.current = null;
+    setMessages([]);
+    streamingIdRef.current = null;
+    setHistoryOpen(false);
     listDashboard()
       .then(setCompanies)
       .catch(() => {});
@@ -75,14 +98,18 @@ export function ChatAssistant() {
 
   // Assistant replies stream in over the same user socket ScreenerPage uses
   // for screen.* events -- one subscription for the component's lifetime.
+  // Every event carries conversation_id; ignore anything not for the chat
+  // that's currently open (another tab's conversation, a stale one, etc).
   useEffect(() => {
     const offToken = realtime.on("assistant.token", (message) => {
+      if (message.conversation_id !== activeConversationIdRef.current) return;
       const id = streamingIdRef.current;
       const chunk = message.text;
       if (id === null || typeof chunk !== "string") return;
       setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, text: m.text + chunk } : m)));
     });
     const offComplete = realtime.on("assistant.complete", (message) => {
+      if (message.conversation_id !== activeConversationIdRef.current) return;
       const id = streamingIdRef.current;
       if (id === null) return;
       const finalText = message.text;
@@ -93,12 +120,13 @@ export function ChatAssistant() {
       setLoading(false);
     });
     const offError = realtime.on("assistant.error", (message) => {
+      if (message.conversation_id !== activeConversationIdRef.current) return;
       const id = streamingIdRef.current;
       const errorText = typeof message.message === "string" ? message.message : "Assistant failed.";
       if (id !== null) {
         setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, text: errorText, streaming: false, error: true } : m)));
       } else {
-        setMessages((prev) => [...prev, { id: nextId.current++, role: "assistant", text: errorText, error: true }]);
+        setMessages((prev) => [...prev, { id: nextLocalId.current--, role: "assistant", text: errorText, error: true }]);
       }
       streamingIdRef.current = null;
       setLoading(false);
@@ -114,7 +142,57 @@ export function ChatAssistant() {
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
   }, [messages, loading]);
 
+  // Sending disables the input while the reply streams in, which blurs it --
+  // refocus the moment it re-enables so the next message can be typed
+  // straight away, with no click back into the box.
+  useEffect(() => {
+    if (!loading) inputRef.current?.focus();
+  }, [loading]);
+
   if (status !== "authenticated") return null;
+
+  const toggleHistory = () => {
+    setHistoryOpen((prev) => {
+      const next = !prev;
+      if (next) {
+        setHistoryLoading(true);
+        listConversations()
+          .then(setConversations)
+          .catch(() => {})
+          .finally(() => setHistoryLoading(false));
+      }
+      return next;
+    });
+  };
+
+  const startNewChat = () => {
+    setConversationId(null);
+    activeConversationIdRef.current = null;
+    setMessages([]);
+    streamingIdRef.current = null;
+    setHistoryOpen(false);
+  };
+
+  const openConversation = async (id: number) => {
+    setHistoryOpen(false);
+    setConversationId(id);
+    activeConversationIdRef.current = id;
+    setMessages([]);
+    streamingIdRef.current = null;
+    try {
+      const history = await listConversationMessages(id);
+      setMessages(history.map((m) => ({ id: m.id, role: m.role, text: m.text })));
+    } catch (err) {
+      setMessages([
+        {
+          id: nextLocalId.current--,
+          role: "assistant",
+          text: err instanceof ApiError ? err.message : "Failed to load that conversation.",
+          error: true,
+        },
+      ]);
+    }
+  };
 
   const handleSend = async () => {
     const q = input.trim();
@@ -122,16 +200,23 @@ export function ChatAssistant() {
     setInput("");
     setLoading(true);
 
-    const assistantId = nextId.current++;
+    const assistantId = nextLocalId.current--;
     setMessages((prev) => [
       ...prev,
-      { id: nextId.current++, role: "user", text: q },
+      { id: nextLocalId.current--, role: "user", text: q },
       { id: assistantId, role: "assistant", text: "", streaming: true },
     ]);
     streamingIdRef.current = assistantId;
 
     try {
-      await sendAssistantMessage(q, modelId || undefined);
+      let convId = conversationId;
+      if (convId === null) {
+        const created = await createConversation(q.slice(0, 60));
+        convId = created.id;
+        setConversationId(convId);
+      }
+      activeConversationIdRef.current = convId;
+      await sendConversationMessage(convId, q, modelId || undefined);
     } catch (err) {
       const errorText = err instanceof ApiError ? err.message : "Failed to send message.";
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, text: errorText, streaming: false, error: true } : m)));
@@ -170,6 +255,39 @@ export function ChatAssistant() {
                 </option>
               ))}
             </select>
+            <div className="chat-history">
+              <button
+                type="button"
+                className="btn btn-secondary btn-icon-sm"
+                onClick={toggleHistory}
+                aria-label="Previous chats"
+                aria-expanded={historyOpen}
+              >
+                ▾
+              </button>
+              {historyOpen && (
+                <div className="chat-history-menu elev-md">
+                  <button type="button" className="chat-history-item chat-history-new" onClick={startNewChat}>
+                    + New chat
+                  </button>
+                  {historyLoading && <div className="chat-history-empty text-muted">Loading…</div>}
+                  {!historyLoading && conversations.length === 0 && (
+                    <div className="chat-history-empty text-muted">No previous chats</div>
+                  )}
+                  {!historyLoading &&
+                    conversations.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        className={`chat-history-item${c.id === conversationId ? " chat-history-item-active" : ""}`}
+                        onClick={() => openConversation(c.id)}
+                      >
+                        {c.title || "Untitled chat"}
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className="btn btn-secondary btn-icon"
@@ -207,6 +325,7 @@ export function ChatAssistant() {
             }}
           >
             <input
+              ref={inputRef}
               className="input"
               value={input}
               onChange={(e) => setInput(e.target.value)}

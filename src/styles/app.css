@@ -169,6 +169,73 @@
   min-width: 0;
 }
 
+.chat-history {
+  position: relative;
+  flex: none;
+}
+
+.btn-icon-sm {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.chat-history-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  width: 220px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-1);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+}
+
+.chat-history-item {
+  display: block;
+  width: 100%;
+  padding: var(--space-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.chat-history-item:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
+.chat-history-item-active {
+  color: var(--color-accent);
+  font-weight: var(--font-heading-weight);
+}
+
+.chat-history-new {
+  color: var(--color-accent);
+  border-bottom: 1px solid var(--color-divider);
+  border-radius: 0;
+  margin-bottom: 2px;
+}
+
+.chat-history-empty {
+  padding: var(--space-2);
+  font-size: 12px;
+}
+
 .chat-drawer-body {
   flex: 1;
   min-height: 0;

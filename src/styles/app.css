@@ -280,6 +280,47 @@
   font-size: 11px;
 }
 
+/* Reuses the .info-tip/.info-tip-bubble hover pattern, but the trigger here
+   is a full text line rather than a small "i" icon -- undo the icon sizing. */
+.chat-msg-usage.info-tip {
+  display: block;
+  width: auto;
+  height: auto;
+  margin-left: 0;
+  border: 0;
+  color: inherit;
+  font-size: 11px;
+  font-family: inherit;
+  line-height: 1.4;
+}
+
+.chat-usage-bubble {
+  top: auto;
+  bottom: calc(100% + 6px);
+  max-width: 260px;
+}
+
+.chat-pending {
+  gap: var(--space-2);
+  border: 1px solid var(--color-divider);
+}
+
+.chat-pending-desc {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.chat-pending-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.chat-pending-status {
+  margin: 0;
+  font-size: 12px;
+}
+
 /* — assistant markdown — */
 .chat-msg-assistant .chat-msg-text {
   white-space: normal;

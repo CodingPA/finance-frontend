@@ -1,8 +1,14 @@
 // Floating chat button + side panel, mounted globally in App.tsx. Every
 // click on the floating button starts a fresh conversation; the small
-// history button lets you switch back to a previous one. Sends stream back
-// over the realtime socket, tagged with conversation_id so a stale/other
-// conversation's tokens don't land in the wrong bubble.
+// history button lets you switch back to a previous one. Replies stream
+// back over the realtime socket, tagged with conversation_id so a stale/
+// other conversation's tokens don't land in the wrong bubble.
+//
+// The assistant can also propose an action (e.g. ingesting a filing) that
+// needs an explicit confirm/deny -- those render as their own list items
+// (`PendingActionItem`), distinct from message bubbles, since a pending
+// action's id comes from a different table and isn't safe to key alongside
+// message ids.
 
 import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react";
 import { useLocation } from "react-router-dom";
@@ -18,11 +24,13 @@ import {
   createConversation,
   listConversationMessages,
   sendConversationMessage,
+  respondToPendingAction,
   type AssistantModel,
   type AssistantConversation,
 } from "../lib/assistant";
 
-interface ChatMessage {
+interface ChatMessageItem {
+  kind: "message";
   id: number;
   role: "user" | "assistant";
   text: string;
@@ -34,8 +42,22 @@ interface ChatMessage {
   modelId?: string | null;
   inputTokens?: number | null;
   outputTokens?: number | null;
+  toolCalls?: string[];
+  toolUseOutputTokens?: number | null;
   costUsd?: string | null;
 }
+
+type PendingActionStatus = "pending" | "working" | "error";
+
+interface PendingActionItem {
+  kind: "pending";
+  pendingActionId: number;
+  description: string;
+  status: PendingActionStatus;
+  errorText?: string;
+}
+
+type ChatItem = ChatMessageItem | PendingActionItem;
 
 const ALL_TICKERS = "__all__";
 
@@ -70,7 +92,7 @@ export function ChatAssistant() {
   const [conversations, setConversations] = useState<AssistantConversation[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [items, setItems] = useState<ChatItem[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   // Negative, decrementing -- server message ids are positive, so local
@@ -80,6 +102,9 @@ export function ChatAssistant() {
   const activeConversationIdRef = useRef<number | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Only auto-scroll while the user is already at (or near) the bottom --
+  // otherwise every streamed token yanks them back down mid-read.
+  const stickToBottomRef = useRef(true);
 
   // Every click of the floating button is a new chat: reset to a blank,
   // not-yet-created conversation and reload the ticker/model context.
@@ -88,8 +113,9 @@ export function ChatAssistant() {
     setTicker(tickerFromPath(location.pathname) ?? ALL_TICKERS);
     setConversationId(null);
     activeConversationIdRef.current = null;
-    setMessages([]);
+    setItems([]);
     streamingIdRef.current = null;
+    stickToBottomRef.current = true;
     setHistoryOpen(false);
     listDashboard()
       .then(setCompanies)
@@ -113,26 +139,32 @@ export function ChatAssistant() {
       const id = streamingIdRef.current;
       const chunk = message.text;
       if (id === null || typeof chunk !== "string") return;
-      setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, text: m.text + chunk } : m)));
+      setItems((prev) =>
+        prev.map((item) => (item.kind === "message" && item.id === id ? { ...item, text: item.text + chunk } : item)),
+      );
     });
     const offComplete = realtime.on("assistant.complete", (message) => {
       if (message.conversation_id !== activeConversationIdRef.current) return;
       const id = streamingIdRef.current;
       if (id === null) return;
       const finalText = message.text;
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === id
+      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls.filter((t) => typeof t === "string") : undefined;
+      setItems((prev) =>
+        prev.map((item) =>
+          item.kind === "message" && item.id === id
             ? {
-                ...m,
-                text: typeof finalText === "string" ? finalText : m.text,
+                ...item,
+                text: typeof finalText === "string" ? finalText : item.text,
                 streaming: false,
-                modelId: typeof message.model_id === "string" ? message.model_id : m.modelId,
-                inputTokens: typeof message.input_tokens === "number" ? message.input_tokens : m.inputTokens,
-                outputTokens: typeof message.output_tokens === "number" ? message.output_tokens : m.outputTokens,
-                costUsd: typeof message.cost_usd === "string" ? message.cost_usd : m.costUsd,
+                modelId: typeof message.model_id === "string" ? message.model_id : item.modelId,
+                inputTokens: typeof message.input_tokens === "number" ? message.input_tokens : item.inputTokens,
+                outputTokens: typeof message.output_tokens === "number" ? message.output_tokens : item.outputTokens,
+                toolCalls: toolCalls ?? item.toolCalls,
+                toolUseOutputTokens:
+                  typeof message.tool_use_output_tokens === "number" ? message.tool_use_output_tokens : item.toolUseOutputTokens,
+                costUsd: typeof message.cost_usd === "string" ? message.cost_usd : item.costUsd,
               }
-            : m,
+            : item,
         ),
       );
       streamingIdRef.current = null;
@@ -143,23 +175,69 @@ export function ChatAssistant() {
       const id = streamingIdRef.current;
       const errorText = typeof message.message === "string" ? message.message : "Assistant failed.";
       if (id !== null) {
-        setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, text: errorText, streaming: false, error: true } : m)));
+        setItems((prev) =>
+          prev.map((item) =>
+            item.kind === "message" && item.id === id ? { ...item, text: errorText, streaming: false, error: true } : item,
+          ),
+        );
       } else {
-        setMessages((prev) => [...prev, { id: nextLocalId.current--, role: "assistant", text: errorText, error: true }]);
+        setItems((prev) => [
+          ...prev,
+          { kind: "message", id: nextLocalId.current--, role: "assistant", text: errorText, error: true },
+        ]);
       }
       streamingIdRef.current = null;
       setLoading(false);
+    });
+    // The assistant proposes an action (e.g. ingesting a filing) and waits
+    // for a confirm/deny -- this can arrive alongside a normal
+    // assistant.complete for the same turn, so it's appended independently
+    // rather than attached to the streaming bubble above.
+    const offConfirmation = realtime.on("assistant.confirmation_required", (message) => {
+      if (message.conversation_id !== activeConversationIdRef.current) return;
+      const pendingActionId = message.pending_action_id;
+      if (typeof pendingActionId !== "number") return;
+      const description =
+        typeof message.description === "string"
+          ? message.description
+          : `Confirm ${message.form ?? "filing"} for ${message.ticker ?? "this company"}?`;
+      setItems((prev) => [...prev, { kind: "pending", pendingActionId, description, status: "pending" }]);
+    });
+    // Fires once the background job (ingest or decline) actually finishes.
+    // Not streamed -- one complete event, which is also a real message row,
+    // so swap the pending card for a normal assistant bubble.
+    const offActionComplete = realtime.on("assistant.action_complete", (message) => {
+      if (message.conversation_id !== activeConversationIdRef.current) return;
+      const pendingActionId = message.pending_action_id;
+      const text = typeof message.text === "string" ? message.text : "Done.";
+      const messageId = typeof message.message_id === "number" ? message.message_id : nextLocalId.current--;
+      setItems((prev) =>
+        prev.map((item) =>
+          item.kind === "pending" && item.pendingActionId === pendingActionId
+            ? { kind: "message", id: messageId, role: "assistant", text }
+            : item,
+        ),
+      );
     });
     return () => {
       offToken();
       offComplete();
       offError();
+      offConfirmation();
+      offActionComplete();
     };
   }, []);
 
   useEffect(() => {
+    if (!stickToBottomRef.current) return;
     bodyRef.current?.scrollTo({ top: bodyRef.current.scrollHeight });
-  }, [messages, loading]);
+  }, [items, loading]);
+
+  const handleBodyScroll = () => {
+    const el = bodyRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
 
   // Sending disables the input while the reply streams in, which blurs it --
   // refocus the moment it re-enables so the next message can be typed
@@ -189,8 +267,9 @@ export function ChatAssistant() {
   const startNewChat = () => {
     setConversationId(null);
     activeConversationIdRef.current = null;
-    setMessages([]);
+    setItems([]);
     streamingIdRef.current = null;
+    stickToBottomRef.current = true;
     setHistoryOpen(false);
   };
 
@@ -198,12 +277,14 @@ export function ChatAssistant() {
     setHistoryOpen(false);
     setConversationId(id);
     activeConversationIdRef.current = id;
-    setMessages([]);
+    setItems([]);
     streamingIdRef.current = null;
+    stickToBottomRef.current = true;
     try {
       const history = await listConversationMessages(id);
-      setMessages(
+      setItems(
         history.map((m) => ({
+          kind: "message",
           id: m.id,
           role: m.role,
           text: m.text,
@@ -211,12 +292,15 @@ export function ChatAssistant() {
           modelId: m.model_id,
           inputTokens: m.input_tokens,
           outputTokens: m.output_tokens,
+          toolCalls: m.tool_calls,
+          toolUseOutputTokens: m.tool_use_output_tokens,
           costUsd: m.cost_usd,
         })),
       );
     } catch (err) {
-      setMessages([
+      setItems([
         {
+          kind: "message",
           id: nextLocalId.current--,
           role: "assistant",
           text: err instanceof ApiError ? err.message : "Failed to load that conversation.",
@@ -226,18 +310,39 @@ export function ChatAssistant() {
     }
   };
 
+  const respondPending = async (pendingActionId: number, approved: boolean) => {
+    setItems((prev) =>
+      prev.map((item) => (item.kind === "pending" && item.pendingActionId === pendingActionId ? { ...item, status: "working" } : item)),
+    );
+    const convId = activeConversationIdRef.current;
+    if (convId === null) return;
+    try {
+      await respondToPendingAction(convId, pendingActionId, approved);
+    } catch (err) {
+      const errorText = err instanceof ApiError ? err.message : "Failed to record your response.";
+      setItems((prev) =>
+        prev.map((item) =>
+          item.kind === "pending" && item.pendingActionId === pendingActionId
+            ? { ...item, status: "error", errorText }
+            : item,
+        ),
+      );
+    }
+  };
+
   const handleSend = async () => {
     const q = input.trim();
     if (!q || loading) return;
     setInput("");
     setLoading(true);
+    stickToBottomRef.current = true;
 
     const scopeTicker = ticker === ALL_TICKERS ? undefined : ticker;
     const assistantId = nextLocalId.current--;
-    setMessages((prev) => [
+    setItems((prev) => [
       ...prev,
-      { id: nextLocalId.current--, role: "user", text: q, ticker: scopeTicker ?? null },
-      { id: assistantId, role: "assistant", text: "", streaming: true },
+      { kind: "message", id: nextLocalId.current--, role: "user", text: q, ticker: scopeTicker ?? null },
+      { kind: "message", id: assistantId, role: "assistant", text: "", streaming: true },
     ]);
     streamingIdRef.current = assistantId;
 
@@ -252,7 +357,11 @@ export function ChatAssistant() {
       await sendConversationMessage(convId, q, { modelId: modelId || undefined, ticker: scopeTicker });
     } catch (err) {
       const errorText = err instanceof ApiError ? err.message : "Failed to send message.";
-      setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, text: errorText, streaming: false, error: true } : m)));
+      setItems((prev) =>
+        prev.map((item) =>
+          item.kind === "message" && item.id === assistantId ? { ...item, text: errorText, streaming: false, error: true } : item,
+        ),
+      );
       streamingIdRef.current = null;
       setLoading(false);
     }
@@ -330,36 +439,78 @@ export function ChatAssistant() {
               &times;
             </button>
           </div>
-          <div className="chat-drawer-body" ref={bodyRef}>
-            {messages.length === 0 && (
+          <div className="chat-drawer-body" ref={bodyRef} onScroll={handleBodyScroll}>
+            {items.length === 0 && (
               <p className="text-muted chat-empty">
                 Ask something about {ticker === ALL_TICKERS ? "your tracked companies" : ticker}.
               </p>
             )}
-            {messages.map((m) => (
-              <div key={m.id} className={`chat-msg chat-msg-${m.role}`}>
-                {m.role === "user" && m.ticker && (
-                  <div className="chat-msg-ticker">
-                    <span className="tag tag-accent">{m.ticker}</span>
+            {items.map((item) =>
+              item.kind === "pending" ? (
+                <div key={`pending-${item.pendingActionId}`} className="chat-msg chat-msg-assistant">
+                  <div className="chat-pending card elev-sm">
+                    <p className="chat-pending-desc">{item.description}</p>
+                    {item.status === "pending" && (
+                      <div className="chat-pending-actions">
+                        <button
+                          type="button"
+                          className="btn btn-primary"
+                          onClick={() => respondPending(item.pendingActionId, true)}
+                        >
+                          Ingest
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => respondPending(item.pendingActionId, false)}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                    {item.status === "working" && <p className="text-muted chat-pending-status">Working on it…</p>}
+                    {item.status === "error" && <p className="chat-pending-status chat-msg-error">{item.errorText}</p>}
                   </div>
-                )}
-                <div className={`chat-msg-text${m.error ? " chat-msg-error" : ""}`}>
-                  {m.role === "assistant" ? (
-                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                      {m.text || (m.streaming ? "…" : "")}
-                    </ReactMarkdown>
-                  ) : (
-                    m.text
+                </div>
+              ) : (
+                <div key={`msg-${item.id}`} className={`chat-msg chat-msg-${item.role}`}>
+                  {item.role === "user" && item.ticker && (
+                    <div className="chat-msg-ticker">
+                      <span className="tag tag-accent">{item.ticker}</span>
+                    </div>
+                  )}
+                  <div className={`chat-msg-text${item.error ? " chat-msg-error" : ""}`}>
+                    {item.role === "assistant" ? (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                        {item.text || (item.streaming ? "…" : "")}
+                      </ReactMarkdown>
+                    ) : (
+                      item.text
+                    )}
+                  </div>
+                  {item.role === "assistant" && !item.streaming && !item.error && item.modelId && (
+                    <div className="chat-msg-usage info-tip text-muted" tabIndex={0}>
+                      {modelDisplayName(item.modelId)} · {(item.inputTokens ?? 0) + (item.outputTokens ?? 0)} tokens · $
+                      {Number(item.costUsd ?? 0).toFixed(4)}
+                      <div className="info-tip-bubble chat-usage-bubble">
+                        <div>Input: {item.inputTokens ?? 0} tokens</div>
+                        <div>
+                          Output: {item.outputTokens ?? 0} tokens
+                          {item.toolUseOutputTokens != null && (
+                            <>
+                              {" "}
+                              ({Math.max((item.outputTokens ?? 0) - item.toolUseOutputTokens, 0)} answer + {item.toolUseOutputTokens}{" "}
+                              tool use)
+                            </>
+                          )}
+                        </div>
+                        {item.toolCalls && item.toolCalls.length > 0 && <div>Tools: {item.toolCalls.join(", ")}</div>}
+                      </div>
+                    </div>
                   )}
                 </div>
-                {m.role === "assistant" && !m.streaming && !m.error && m.modelId && (
-                  <div className="chat-msg-usage text-muted">
-                    {modelDisplayName(m.modelId)} · {(m.inputTokens ?? 0) + (m.outputTokens ?? 0)} tokens · $
-                    {Number(m.costUsd ?? 0).toFixed(4)}
-                  </div>
-                )}
-              </div>
-            ))}
+              ),
+            )}
           </div>
           <form
             className="chat-drawer-input"

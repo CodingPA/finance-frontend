@@ -26,8 +26,16 @@ export interface AssistantMessage {
   /** Only ever set on user rows -- what that turn was scoped to, if anything. */
   ticker: string | null;
   model_id: string | null;
+  /** Summed across every tool-calling round-trip in the turn. */
   input_tokens: number | null;
   output_tokens: number | null;
+  /** Tools that actually ran, in order -- [] if none. */
+  tool_calls: string[];
+  /** Slice of output_tokens spent deciding to call tools (+ preamble); the
+   *  rest of output_tokens is the final answer text. No input-side split
+   *  exists -- each round resends the whole conversation, so a round's
+   *  input total isn't meaningfully attributable to that round's tool call. */
+  tool_use_output_tokens: number | null;
   /** A Decimal server-side, so it arrives as a string -- Number()/parseFloat before summing. */
   cost_usd: string | null;
 }
@@ -91,4 +99,23 @@ export async function sendConversationMessage(
     body: JSON.stringify(body),
   });
   return parseJsonOrThrow<AssistantMessage>(res);
+}
+
+/** Approve or deny a proposed action (e.g. ingesting a filing). This only
+ *  kicks off the work (or records the decline) -- the real outcome arrives
+ *  later over the socket as assistant.action_complete. 404s if the action
+ *  was already resolved (e.g. a double-clicked confirm). */
+export async function respondToPendingAction(
+  conversationId: number,
+  pendingActionId: number,
+  approved: boolean,
+): Promise<void> {
+  const res = await apiFetch(`/assistant/conversations/${conversationId}/pending-actions/${pendingActionId}/`, {
+    method: "POST",
+    body: JSON.stringify({ approved }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body);
+  }
 }

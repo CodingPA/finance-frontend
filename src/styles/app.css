@@ -131,3 +131,155 @@
   color: var(--color-accent);
   font-weight: var(--font-heading-weight);
 }
+
+/* — chat assistant — */
+.chat-fab {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 30;
+  border-radius: 999px;
+  padding: var(--space-2) var(--space-4);
+}
+
+.chat-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 29;
+  width: min(380px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-divider);
+}
+
+.chat-drawer-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.chat-drawer-head .input {
+  flex: 1;
+}
+
+.chat-drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.chat-empty {
+  font-size: 13px;
+}
+
+.chat-msg-text {
+  white-space: pre-wrap;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-text) 6%, transparent);
+}
+
+.chat-msg-user .chat-msg-text {
+  background: var(--color-accent-100);
+  color: var(--color-accent-800);
+}
+
+.chat-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chat-results-count {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.clip-card {
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+}
+
+.clip-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+}
+
+.clip-card-head:hover {
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+}
+
+.clip-card-ticker {
+  flex: none;
+}
+
+.clip-card-label {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clip-card-distance {
+  flex: none;
+  font-size: 11px;
+}
+
+.clip-card-caret {
+  flex: none;
+  width: 16px;
+  text-align: center;
+  color: var(--color-accent);
+}
+
+.clip-card-body {
+  padding: 0 var(--space-3) var(--space-3);
+  border-top: 1px solid var(--color-divider);
+}
+
+.clip-card-source {
+  font-size: 11px;
+  margin: var(--space-2) 0 var(--space-1);
+}
+
+.clip-card-text {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  margin: 0;
+}
+
+.chat-drawer-input {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-top: 1px solid var(--color-divider);
+}
+
+.chat-drawer-input .input {
+  flex: 1;
+}

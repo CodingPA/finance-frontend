@@ -38,6 +38,18 @@ export function formatRunway(status: RunwayStatus, years: number | null | undefi
   return formatYears(years);
 }
 
+/** mm:ss, or h:mm:ss once it's over an hour -- for media playback length. */
+export function formatDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return "—";
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
 export function formatShares(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return value.toLocaleString();

@@ -94,13 +94,17 @@ export async function refreshAccessToken(): Promise<boolean> {
   return true;
 }
 
-/** Authenticated fetch with one silent-refresh-and-retry on 401. */
+/** Authenticated fetch with one silent-refresh-and-retry on 401. Skips the
+ *  default JSON content-type for a FormData body (e.g. file uploads) -- the
+ *  browser needs to set its own multipart boundary, which it won't do if
+ *  Content-Type is already present. */
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+  const isFormData = options.body instanceof FormData;
   const doFetch = () =>
     fetch(`${API_BASE}${path}`, {
       ...options,
       headers: {
-        "Content-Type": "application/json",
+        ...(isFormData ? {} : { "Content-Type": "application/json" }),
         ...authHeader(),
         ...options.headers,
       },

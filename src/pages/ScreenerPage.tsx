@@ -5,6 +5,7 @@ import { getCompanyReport, screenCompany, type CompanyReport, type FiscalSeries 
 import {
   formatDate,
   formatDateTime,
+  formatDuration,
   formatMultiple,
   formatPercent,
   formatPrice,
@@ -24,6 +25,7 @@ import {
   type ResearchClip,
 } from "../lib/clips";
 import { getJournal, updateJournal, type CompanyJournal, type JournalPatch } from "../lib/journal";
+import { listMediaFiles, uploadMedia, deleteMediaFile, type MediaFile, type MediaStatus } from "../lib/media";
 import { realtime } from "../lib/ws";
 import { Modal } from "../components/Modal";
 import { InfoTip } from "../components/InfoTip";
@@ -303,6 +305,187 @@ function ClipsCard({
   );
 }
 
+const MEDIA_STATUS_LABELS: Record<MediaStatus, string> = {
+  uploaded: "Queued",
+  downloading: "Downloading…",
+  extracting_audio: "Extracting audio…",
+  transcribing: "Transcribing…",
+  ready: "Ready",
+  failed: "Failed",
+};
+
+const MEDIA_STATUS_TAG: Record<MediaStatus, string> = {
+  uploaded: "tag-neutral",
+  downloading: "tag-neutral",
+  extracting_audio: "tag-neutral",
+  transcribing: "tag-neutral",
+  ready: "tag-accent",
+  failed: "tag-outline",
+};
+
+/** Upload an .mp3/.mp4 for this ticker; once "ready" it's automatically
+ *  searchable by the assistant (search_media_transcripts tool) -- no further
+ *  wiring needed for that part. Progress arrives over the realtime socket,
+ *  keyed by media_file_id, since transcription/diarization can take
+ *  1-2+ minutes and isn't reflected on the upload response itself. */
+function MediaCard({ ticker }: { ticker: string }) {
+  const [files, setFiles] = useState<MediaFile[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFiles(null);
+    listMediaFiles()
+      .then((all) => {
+        if (!cancelled) setFiles(all.filter((f) => f.ticker === ticker));
+      })
+      .catch((err) => {
+        if (!cancelled) setError(extractGenericMessage(err, "Couldn't load uploads."));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
+
+  useEffect(() => {
+    const offProgress = realtime.on("media.progress", (message) => {
+      const id = message.media_file_id;
+      const stage = message.stage;
+      if (typeof id !== "number" || typeof stage !== "string") return;
+      setFiles((prev) => prev?.map((f) => (f.id === id ? { ...f, status: stage as MediaStatus } : f)) ?? prev);
+    });
+    const offComplete = realtime.on("media.complete", (message) => {
+      const id = message.media_file_id;
+      if (typeof id !== "number") return;
+      setFiles(
+        (prev) =>
+          prev?.map((f) =>
+            f.id === id
+              ? {
+                  ...f,
+                  status: "ready",
+                  duration_seconds: typeof message.duration_seconds === "number" ? message.duration_seconds : f.duration_seconds,
+                }
+              : f,
+          ) ?? prev,
+      );
+    });
+    const offFailed = realtime.on("media.failed", (message) => {
+      const id = message.media_file_id;
+      if (typeof id !== "number") return;
+      const errorMessage = typeof message.message === "string" ? message.message : "Processing failed.";
+      setFiles((prev) => prev?.map((f) => (f.id === id ? { ...f, status: "failed", error_message: errorMessage } : f)) ?? prev);
+    });
+    return () => {
+      offProgress();
+      offComplete();
+      offFailed();
+    };
+  }, []);
+
+  const handleUpload = async (e: FormEvent) => {
+    e.preventDefault();
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) return;
+    setError(null);
+    setUploading(true);
+    try {
+      const uploaded = await uploadMedia(file, ticker);
+      setFiles((prev) => [uploaded, ...(prev ?? [])]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (err) {
+      setError(extractGenericMessage(err, "Couldn't upload file."));
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!window.confirm("Delete this upload?")) return;
+    try {
+      await deleteMediaFile(id);
+      setFiles((prev) => prev?.filter((f) => f.id !== id) ?? prev);
+    } catch (err) {
+      setError(extractGenericMessage(err, "Couldn't delete upload."));
+    }
+  };
+
+  return (
+    <div className="stack">
+      <form className="card elev-sm stack" onSubmit={handleUpload}>
+        <div className="field">
+          <label htmlFor="media-file">Audio or video file (.mp3, .mp4)</label>
+          <input id="media-file" type="file" accept=".mp3,.mp4,audio/mpeg,video/mp4" className="input" ref={fileInputRef} required />
+        </div>
+        {error && <p className="form-error">{error}</p>}
+        <button type="submit" className="btn btn-primary" disabled={uploading}>
+          {uploading ? "Uploading…" : "Upload"}
+        </button>
+      </form>
+
+      {files === null ? (
+        <p className="text-muted">Loading uploads…</p>
+      ) : files.length === 0 ? (
+        <p className="text-muted">No files uploaded yet.</p>
+      ) : (
+        <div className="stack">
+          {files.map((f) => (
+            <div className="card elev-sm" key={f.id}>
+              <div className="page-head">
+                <strong>{f.original_filename}</strong>
+                <span className={`tag ${MEDIA_STATUS_TAG[f.status]}`}>{MEDIA_STATUS_LABELS[f.status]}</span>
+              </div>
+              {f.status === "ready" && <div className="card-meta">{formatDuration(f.duration_seconds)}</div>}
+              {f.status === "failed" && f.error_message && <p className="form-error">{f.error_message}</p>}
+              <button type="button" className="btn btn-ghost" onClick={() => handleDelete(f.id)}>
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Clips tab's own sub-tabs: typed-in text clips (the original view) vs.
+ *  uploaded audio/video. Media defaults open since that's the newer,
+ *  higher-friction path worth surfacing first. */
+function ClipsSection({
+  ticker,
+  clips,
+  setClips,
+}: {
+  ticker: string;
+  clips: ResearchClip[];
+  setClips: (update: (prev: ResearchClip[]) => ResearchClip[]) => void;
+}) {
+  const [subTab, setSubTab] = useState<"media" | "text">("media");
+
+  return (
+    <div className="stack">
+      <div className="seg" role="tablist" aria-label="Clips source">
+        <label className="seg-opt">
+          <input type="radio" name="clips-subtab" checked={subTab === "media"} onChange={() => setSubTab("media")} />
+          Files / Media
+        </label>
+        <label className="seg-opt">
+          <input type="radio" name="clips-subtab" checked={subTab === "text"} onChange={() => setSubTab("text")} />
+          Text
+        </label>
+      </div>
+      <div style={{ display: subTab === "media" ? undefined : "none" }}>
+        <MediaCard ticker={ticker} />
+      </div>
+      <div style={{ display: subTab === "text" ? undefined : "none" }}>
+        <ClipsCard ticker={ticker} clips={clips} setClips={setClips} />
+      </div>
+    </div>
+  );
+}
+
 /** Mode 3 deep-dive section, shown once a ticker is tracked (report exists)
  *  regardless of whether it's been screened yet -- notes don't depend on
  *  the automated financial screen having run. */
@@ -377,7 +560,7 @@ function ResearchTabs({
         <JournalCard ticker={ticker} initial={journal} />
       </div>
       <div style={{ display: tab === "clips" ? undefined : "none" }}>
-        <ClipsCard ticker={ticker} clips={clips} setClips={setClips} />
+        <ClipsSection ticker={ticker} clips={clips} setClips={setClips} />
       </div>
     </div>
   );

@@ -23,10 +23,13 @@ export interface AssistantMessage {
   id: number;
   role: AssistantMessageRole;
   text: string;
+  /** Only ever set on user rows -- what that turn was scoped to, if anything. */
+  ticker: string | null;
   model_id: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
-  cost_usd: number | null;
+  /** A Decimal server-side, so it arrives as a string -- Number()/parseFloat before summing. */
+  cost_usd: string | null;
 }
 
 /** Admin-managed model catalog -- the same list `model_id` validates against. */
@@ -64,16 +67,28 @@ export async function listConversationMessages(id: number): Promise<AssistantMes
   return parseJsonOrThrow<AssistantMessage[]>(res);
 }
 
+export interface SendMessageOptions {
+  modelId?: string;
+  /** Case-insensitive, resolved server-side. Omit for an unscoped turn --
+   *  one conversation can freely mix scoped and unscoped messages. */
+  ticker?: string;
+}
+
 /** Queues the assistant run and returns the user message row you just sent
- *  (202) -- safe to append immediately. The reply streams over the socket. */
+ *  (202) -- safe to append immediately. The reply streams over the socket.
+ *  400s with {"ticker": ["Ticker 'ZZZZ' not found ..."]} for an invalid ticker. */
 export async function sendConversationMessage(
   conversationId: number,
   message: string,
-  modelId?: string,
+  options: SendMessageOptions = {},
 ): Promise<AssistantMessage> {
+  const body: Record<string, string> = { message };
+  if (options.modelId) body.model_id = options.modelId;
+  if (options.ticker) body.ticker = options.ticker;
+
   const res = await apiFetch(`/assistant/conversations/${conversationId}/messages/`, {
     method: "POST",
-    body: JSON.stringify(modelId ? { message, model_id: modelId } : { message }),
+    body: JSON.stringify(body),
   });
   return parseJsonOrThrow<AssistantMessage>(res);
 }

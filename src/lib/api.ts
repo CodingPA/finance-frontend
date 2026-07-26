@@ -33,13 +33,18 @@ export class ApiError extends Error {
   }
 }
 
-// Most errors are {detail: "..."}, but some (e.g. the screen endpoint's
-// "ticker not found") come back as a bare array of message strings instead.
+// Most errors are {detail: "..."}, some (e.g. the screen endpoint's "ticker
+// not found") come back as a bare array of message strings, and DRF field
+// validation (e.g. the assistant message endpoint's bad `ticker`) comes back
+// as {field: ["..."]} -- fall through all three shapes before giving up.
 function extractErrorDetail(body: unknown): string {
   if (Array.isArray(body) && typeof body[0] === "string") return body[0];
-  if (body && typeof body === "object" && "detail" in body) {
-    const detail = (body as { detail?: unknown }).detail;
-    if (typeof detail === "string") return detail;
+  if (body && typeof body === "object") {
+    const obj = body as Record<string, unknown>;
+    if (typeof obj.detail === "string") return obj.detail;
+    for (const value of Object.values(obj)) {
+      if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+    }
   }
   return "Request failed";
 }

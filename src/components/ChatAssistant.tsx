@@ -28,6 +28,13 @@ interface ChatMessage {
   text: string;
   streaming?: boolean;
   error?: boolean;
+  /** Set on user rows when that turn was ticker-scoped. */
+  ticker?: string | null;
+  /** Usage/cost -- only ever populated on assistant rows. */
+  modelId?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  costUsd?: string | null;
 }
 
 const ALL_TICKERS = "__all__";
@@ -54,8 +61,8 @@ export function ChatAssistant() {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [companies, setCompanies] = useState<DashboardCompany[]>([]);
-  // Scopes future tool-backed replies to one company; the assistant's first
-  // slice has no tools, so this isn't sent to the backend yet.
+  // Scopes each sent message to one company via the per-message `ticker`
+  // field; "All tickers" just means the turn goes unscoped for now.
   const [ticker, setTicker] = useState<string>(ALL_TICKERS);
   const [models, setModels] = useState<AssistantModel[]>([]);
   const [modelId, setModelId] = useState<string>("");
@@ -114,7 +121,19 @@ export function ChatAssistant() {
       if (id === null) return;
       const finalText = message.text;
       setMessages((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, text: typeof finalText === "string" ? finalText : m.text, streaming: false } : m)),
+        prev.map((m) =>
+          m.id === id
+            ? {
+                ...m,
+                text: typeof finalText === "string" ? finalText : m.text,
+                streaming: false,
+                modelId: typeof message.model_id === "string" ? message.model_id : m.modelId,
+                inputTokens: typeof message.input_tokens === "number" ? message.input_tokens : m.inputTokens,
+                outputTokens: typeof message.output_tokens === "number" ? message.output_tokens : m.outputTokens,
+                costUsd: typeof message.cost_usd === "string" ? message.cost_usd : m.costUsd,
+              }
+            : m,
+        ),
       );
       streamingIdRef.current = null;
       setLoading(false);
@@ -151,6 +170,8 @@ export function ChatAssistant() {
 
   if (status !== "authenticated") return null;
 
+  const modelDisplayName = (id: string) => models.find((m) => m.model_id === id)?.display_name ?? id;
+
   const toggleHistory = () => {
     setHistoryOpen((prev) => {
       const next = !prev;
@@ -181,7 +202,18 @@ export function ChatAssistant() {
     streamingIdRef.current = null;
     try {
       const history = await listConversationMessages(id);
-      setMessages(history.map((m) => ({ id: m.id, role: m.role, text: m.text })));
+      setMessages(
+        history.map((m) => ({
+          id: m.id,
+          role: m.role,
+          text: m.text,
+          ticker: m.ticker,
+          modelId: m.model_id,
+          inputTokens: m.input_tokens,
+          outputTokens: m.output_tokens,
+          costUsd: m.cost_usd,
+        })),
+      );
     } catch (err) {
       setMessages([
         {
@@ -200,10 +232,11 @@ export function ChatAssistant() {
     setInput("");
     setLoading(true);
 
+    const scopeTicker = ticker === ALL_TICKERS ? undefined : ticker;
     const assistantId = nextLocalId.current--;
     setMessages((prev) => [
       ...prev,
-      { id: nextLocalId.current--, role: "user", text: q },
+      { id: nextLocalId.current--, role: "user", text: q, ticker: scopeTicker ?? null },
       { id: assistantId, role: "assistant", text: "", streaming: true },
     ]);
     streamingIdRef.current = assistantId;
@@ -216,7 +249,7 @@ export function ChatAssistant() {
         setConversationId(convId);
       }
       activeConversationIdRef.current = convId;
-      await sendConversationMessage(convId, q, modelId || undefined);
+      await sendConversationMessage(convId, q, { modelId: modelId || undefined, ticker: scopeTicker });
     } catch (err) {
       const errorText = err instanceof ApiError ? err.message : "Failed to send message.";
       setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, text: errorText, streaming: false, error: true } : m)));
@@ -305,6 +338,11 @@ export function ChatAssistant() {
             )}
             {messages.map((m) => (
               <div key={m.id} className={`chat-msg chat-msg-${m.role}`}>
+                {m.role === "user" && m.ticker && (
+                  <div className="chat-msg-ticker">
+                    <span className="tag tag-accent">{m.ticker}</span>
+                  </div>
+                )}
                 <div className={`chat-msg-text${m.error ? " chat-msg-error" : ""}`}>
                   {m.role === "assistant" ? (
                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
@@ -314,6 +352,12 @@ export function ChatAssistant() {
                     m.text
                   )}
                 </div>
+                {m.role === "assistant" && !m.streaming && !m.error && m.modelId && (
+                  <div className="chat-msg-usage text-muted">
+                    {modelDisplayName(m.modelId)} · {(m.inputTokens ?? 0) + (m.outputTokens ?? 0)} tokens · $
+                    {Number(m.costUsd ?? 0).toFixed(4)}
+                  </div>
+                )}
               </div>
             ))}
           </div>

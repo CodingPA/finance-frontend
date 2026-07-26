@@ -270,6 +270,16 @@
   color: var(--color-accent-700);
 }
 
+.chat-msg-ticker {
+  margin-bottom: 4px;
+}
+
+.chat-msg-usage {
+  margin-top: 4px;
+  padding: 0 var(--space-1);
+  font-size: 11px;
+}
+
 /* — assistant markdown — */
 .chat-msg-assistant .chat-msg-text {
   white-space: normal;

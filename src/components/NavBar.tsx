@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useRealtimeStatus } from "../hooks/useRealtimeStatus";
+import { NotificationBell } from "./NotificationBell";
 
 const REALTIME_LABEL = {
   idle: "Offline",
@@ -30,6 +31,7 @@ export function NavBar() {
           <span className={`tag ${wsStatus === "open" ? "tag-accent" : "tag-neutral"}`} title="Realtime connection">
             {REALTIME_LABEL[wsStatus]}
           </span>
+          <NotificationBell />
           <span className="text-muted">{user.name || user.email}</span>
           <button type="button" className="btn btn-secondary" onClick={handleLogout}>
             Log out

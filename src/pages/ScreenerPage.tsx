@@ -26,6 +26,7 @@ import {
 } from "../lib/clips";
 import { getJournal, updateJournal, type CompanyJournal, type JournalPatch } from "../lib/journal";
 import { listMediaFiles, uploadMedia, deleteMediaFile, type MediaFile, type MediaStatus } from "../lib/media";
+import { listWikiPages, linkWikiPage, unlinkWikiPage, type WikiPage } from "../lib/wiki";
 import { realtime } from "../lib/ws";
 import { Modal } from "../components/Modal";
 import { InfoTip } from "../components/InfoTip";
@@ -486,6 +487,127 @@ function ClipsSection({
   );
 }
 
+/** Wikipedia pages monitored for this ticker -- a daily job rechecks each one
+ *  and keeps a `wiki`-sourced clip in sync when the content actually changes.
+ *  The link field takes either a full en.wikipedia.org URL or a plain title
+ *  (both go to the same `page_title` field -- the backend tells them apart);
+ *  a URL is unambiguous and skips the title-resolution step, so the copy
+ *  nudges toward pasting one. Linking is synchronous (validated against
+ *  Wikipedia in the POST response itself), so no realtime subscription is
+ *  needed here; the first check just hasn't run yet, hence
+ *  last_checked_at/last_changed_at both starting out null. */
+function WikiCard({ ticker }: { ticker: string }) {
+  const [pages, setPages] = useState<WikiPage[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pageTitle, setPageTitle] = useState("");
+  const [label, setLabel] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPages(null);
+    setError(null);
+    listWikiPages(ticker)
+      .then((all) => {
+        if (!cancelled) setPages(all);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(extractGenericMessage(err, "Couldn't load linked pages."));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticker]);
+
+  const handleLink = async (e: FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const page = await linkWikiPage(ticker, { page_title: pageTitle, label: label || undefined });
+      setPages((prev) => {
+        const existing = prev ?? [];
+        const withoutDup = existing.filter((p) => p.id !== page.id);
+        return [page, ...withoutDup];
+      });
+      setPageTitle("");
+      setLabel("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't link that page.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleUnlink = async (id: number) => {
+    if (!window.confirm("Unlink this page? It'll stop being checked and its clips will be removed.")) return;
+    try {
+      await unlinkWikiPage(ticker, id);
+      setPages((prev) => prev?.filter((p) => p.id !== id) ?? prev);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't unlink that page.");
+    }
+  };
+
+  return (
+    <div className="stack">
+      <form className="card elev-sm stack" onSubmit={handleLink}>
+        <div className="field">
+          <label htmlFor="wiki-page-title">Wikipedia URL or page title</label>
+          <input
+            id="wiki-page-title"
+            className="input"
+            value={pageTitle}
+            onChange={(e) => setPageTitle(e.target.value)}
+            placeholder="https://en.wikipedia.org/wiki/Rocket_Lab"
+            required
+          />
+          <p className="card-meta">
+            Paste the article URL — it's unambiguous and skips lookup entirely. A plain title (e.g. "Rocket Lab")
+            works too but may need a retry if it's not an exact match.
+          </p>
+        </div>
+        <div className="field">
+          <label htmlFor="wiki-label">Label</label>
+          <input
+            id="wiki-label"
+            className="input"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="Parent company"
+          />
+        </div>
+        {error && <p className="form-error">{error}</p>}
+        <button type="submit" className="btn btn-primary" disabled={submitting}>
+          {submitting ? "Linking…" : "Link page"}
+        </button>
+      </form>
+
+      {pages === null ? (
+        <p className="text-muted">Loading linked pages…</p>
+      ) : pages.length === 0 ? (
+        <p className="text-muted">No Wikipedia pages linked yet.</p>
+      ) : (
+        <div className="stack">
+          {pages.map((p) => (
+            <div className="card elev-sm" key={p.id}>
+              <div className="page-head">
+                <strong>{p.page_title}</strong>
+                {p.label && <span className="tag tag-neutral">{p.label}</span>}
+              </div>
+              <div className="card-meta">Last checked: {formatDateTime(p.last_checked_at)}</div>
+              <div className="card-meta">Last changed: {formatDateTime(p.last_changed_at)}</div>
+              <button type="button" className="btn btn-ghost" onClick={() => handleUnlink(p.id)}>
+                Unlink
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Mode 3 deep-dive section, shown once a ticker is tracked (report exists)
  *  regardless of whether it's been screened yet -- notes don't depend on
  *  the automated financial screen having run. */
@@ -537,7 +659,7 @@ function ResearchTabs({
   journal: CompanyJournal;
   clips: ResearchClip[];
 }) {
-  const [tab, setTab] = useState<"journal" | "clips">("clips");
+  const [tab, setTab] = useState<"journal" | "clips" | "wiki">("clips");
   const [clips, setClips] = useState(initialClips);
 
   return (
@@ -551,8 +673,12 @@ function ResearchTabs({
           <input type="radio" name="research-tab" checked={tab === "journal"} onChange={() => setTab("journal")} />
           Journal
         </label>
+        <label className="seg-opt">
+          <input type="radio" name="research-tab" checked={tab === "wiki"} onChange={() => setTab("wiki")} />
+          Wiki
+        </label>
       </div>
-      {/* Both stay mounted (just hidden) rather than switching on `tab`
+      {/* All three stay mounted (just hidden) rather than switching on `tab`
           directly -- JournalCard holds its own edit/save state locally, and
           unmounting on tab-away would remount from the stale `initial`
           prop next time, silently reverting anything saved in between. */}
@@ -561,6 +687,9 @@ function ResearchTabs({
       </div>
       <div style={{ display: tab === "clips" ? undefined : "none" }}>
         <ClipsSection ticker={ticker} clips={clips} setClips={setClips} />
+      </div>
+      <div style={{ display: tab === "wiki" ? undefined : "none" }}>
+        <WikiCard ticker={ticker} />
       </div>
     </div>
   );

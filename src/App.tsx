@@ -7,6 +7,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ScreenerPage } from "./pages/ScreenerPage";
+import { LeaguePage } from "./pages/LeaguePage";
 
 export function App() {
   return (
@@ -37,6 +38,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <ScreenerPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/league"
+            element={
+              <ProtectedRoute>
+                <LeaguePage />
               </ProtectedRoute>
             }
           />

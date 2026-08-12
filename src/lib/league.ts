@@ -7,6 +7,7 @@
 import { ApiError, apiFetch, parseJsonOrThrow } from "./api";
 
 export type CompetitorKind = "ai" | "human";
+export type ModelProvider = "anthropic" | "openai";
 export type InstrumentType = "stock" | "call" | "put";
 export type TradeSide = "buy" | "sell" | "sell_to_open" | "buy_to_close";
 export type TradeStatus = "filled" | "rejected";
@@ -64,6 +65,11 @@ export interface Position {
   quantity: number;
   is_short: boolean;
   avg_cost: string;
+  // Live unit price (last sale for stock, bid for options) and sign-aware
+  // total market value (negative for the short leg of a covered call/put) --
+  // same convention account_value already uses.
+  current_price: string;
+  current_value: string;
   opened_at: string;
 }
 
@@ -104,6 +110,16 @@ export interface NewTrade {
   thesis: string;
 }
 
+/** Every active model across both providers, for the competitor-creation
+ *  dropdown -- distinct from assistant.ts's listAssistantModels(), which is
+ *  the Anthropic-only main-chat picker. */
+export interface LeagueModel {
+  model_id: string;
+  display_name: string;
+  provider: ModelProvider;
+  is_default: boolean;
+}
+
 export interface NewCompetitor {
   name: string;
   kind: CompetitorKind;
@@ -131,11 +147,14 @@ export interface TurnSummary {
   created_at: string;
 }
 
-// Assistant-role entries carry raw Anthropic content blocks verbatim
-// (`block.model_dump()` server-side) -- text/tool_use/server_tool_use/
-// web_search_tool_result today, potentially more later. Kept loose rather
-// than a full union since new block types shouldn't need a frontend change
-// to render "something happened here".
+// Assistant-role entries carry raw content blocks verbatim from whichever
+// provider ran the turn (`block.model_dump()` server-side) -- there's no
+// shared shape between them: Anthropic sends text/tool_use/server_tool_use/
+// web_search_tool_result, OpenAI sends message/function_call/
+// function_call_output/web_search_call. Kept loose rather than a full union
+// since new block types shouldn't need a frontend change to render
+// "something happened here" -- render code should branch on the
+// competitor's provider (see LeagueModel), not on sniffing `type` strings.
 export interface TranscriptBlock {
   type: string;
   text?: string;
@@ -162,6 +181,11 @@ export interface Scratchpad {
 export async function listCompetitions(): Promise<Competition[]> {
   const res = await apiFetch("/league/competitions/");
   return parseJsonOrThrow<Competition[]>(res);
+}
+
+export async function listModels(): Promise<LeagueModel[]> {
+  const res = await apiFetch("/league/models/");
+  return parseJsonOrThrow<LeagueModel[]>(res);
 }
 
 export async function getScoreboard(competitionId: number): Promise<Scoreboard> {

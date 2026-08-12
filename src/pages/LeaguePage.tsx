@@ -5,30 +5,38 @@
 // competition ever gets created.
 
 import { useEffect, useState } from "react";
-import { useAuth } from "../context/AuthContext";
 import { realtime } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import { formatDateTime, formatPercent, formatPrice, formatUsd } from "../lib/format";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
+import { AddCompetitorModal } from "../components/AddCompetitorModal";
 import {
-  addCompetitor,
   getCompetitor,
   getScoreboard,
   getScratchpad,
   listCompetitions,
   listCompetitors,
+  listModels,
   listTrades,
   listTurns,
   triggerWakeup,
   type Competition,
   type CompetitorDetail,
   type CompetitorSummary,
+  type LeagueModel,
   type Scoreboard,
   type Scratchpad,
   type Trade,
   type TurnSummary,
 } from "../lib/league";
+
+const WAKE_ALL_MAX = 10;
+const WAKE_ALL_DELAY_MS = 1000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export function LeaguePage() {
   const [competition, setCompetition] = useState<Competition | null>(null);
@@ -38,6 +46,10 @@ export function LeaguePage() {
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [refreshSignal, setRefreshSignal] = useState(0);
+  const [addModalOpen, setAddModalOpen] = useState(false);
+  const [wakingAll, setWakingAll] = useState(false);
+  const [wakeAllError, setWakeAllError] = useState<string | null>(null);
+  const [models, setModels] = useState<LeagueModel[]>([]);
 
   const loadCompetitionData = async (competitionId: number) => {
     const [board, list] = await Promise.all([getScoreboard(competitionId), listCompetitors(competitionId)]);
@@ -65,6 +77,12 @@ export function LeaguePage() {
     };
   }, []);
 
+  useEffect(() => {
+    listModels()
+      .then(setModels)
+      .catch(() => {});
+  }, []);
+
   // league.trade_activity / league.wakeup_complete / league.wakeup_failed all
   // arrive as generic notification.new pushes -- refresh the scoreboard and
   // whichever competitor's detail panel is open on any of them.
@@ -83,12 +101,52 @@ export function LeaguePage() {
     if (competition) loadCompetitionData(competition.id).catch(() => {});
   };
 
+  const handleWakeAll = async () => {
+    const targets = competitors.filter((c) => c.kind === "ai").slice(0, WAKE_ALL_MAX);
+    if (targets.length === 0) return;
+    setWakingAll(true);
+    setWakeAllError(null);
+    let failures = 0;
+    for (let i = 0; i < targets.length; i++) {
+      try {
+        await triggerWakeup(targets[i].id);
+      } catch {
+        failures++;
+      }
+      if (i < targets.length - 1) await sleep(WAKE_ALL_DELAY_MS);
+    }
+    setWakingAll(false);
+    if (failures > 0) setWakeAllError(`${failures} of ${targets.length} wake-ups failed to trigger.`);
+  };
+
   const hasHumanCompetitor = competitors.some((c) => c.kind === "human");
+  const aiCompetitorCount = competitors.filter((c) => c.kind === "ai").length;
   const selected = competitors.find((c) => c.id === selectedId) ?? null;
 
   return (
     <div className="page">
-      <h2>Paper Trading League</h2>
+      <div className="page-head">
+        <h2>Paper Trading League</h2>
+        {competition && (
+          <>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ marginLeft: "auto" }}
+              onClick={handleWakeAll}
+              disabled={wakingAll || aiCompetitorCount === 0}
+              title={`Wakes up to ${WAKE_ALL_MAX} AI competitors, ${WAKE_ALL_DELAY_MS / 1000}s apart`}
+            >
+              {wakingAll ? "Waking…" : "Wake up all"}
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => setAddModalOpen(true)}>
+              Add competitor
+            </button>
+          </>
+        )}
+      </div>
+
+      {wakeAllError && <p className="form-error">{wakeAllError}</p>}
 
       {loading && <p className="text-muted">Loading league…</p>}
       {error && <p className="form-error">{error}</p>}
@@ -135,89 +193,29 @@ export function LeaguePage() {
             </div>
           )}
 
-          <JoinCard competitionId={competition.id} hasHumanCompetitor={hasHumanCompetitor} onJoined={handleJoined} />
-
           {selected && (
             <CompetitorPanel
               key={selected.id}
               summary={selected}
+              models={models}
               refreshSignal={refreshSignal}
               onTradeFilled={() => competition && loadCompetitionData(competition.id).catch(() => {})}
             />
           )}
+
+          {addModalOpen && (
+            <AddCompetitorModal
+              competitionId={competition.id}
+              hasHumanCompetitor={hasHumanCompetitor}
+              onClose={() => setAddModalOpen(false)}
+              onJoined={(c) => {
+                handleJoined(c);
+                setAddModalOpen(false);
+              }}
+            />
+          )}
         </>
       )}
-    </div>
-  );
-}
-
-/** Always available, not just before your first competitor -- the backend
- *  only rejects a duplicate *name* within a competition (docs/league-api.md),
- *  not a second human-kind competitor under the same account, so you can run
- *  more than one persona/strategy side by side. Collapsed by default once
- *  you've already got at least one, so the page isn't cluttered with a form
- *  every time. */
-function JoinCard({
-  competitionId,
-  hasHumanCompetitor,
-  onJoined,
-}: {
-  competitionId: number;
-  hasHumanCompetitor: boolean;
-  onJoined: (c: CompetitorSummary) => void;
-}) {
-  const { user } = useAuth();
-  const [expanded, setExpanded] = useState(!hasHumanCompetitor);
-  const [name, setName] = useState(hasHumanCompetitor ? "" : user?.name || "Me");
-  const [joining, setJoining] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  if (!expanded) {
-    return (
-      <button type="button" className="btn btn-secondary" onClick={() => setExpanded(true)}>
-        Add another competitor
-      </button>
-    );
-  }
-
-  const handleJoin = async () => {
-    setJoining(true);
-    setError(null);
-    try {
-      const competitor = await addCompetitor(competitionId, { name: name.trim() || "Me", kind: "human" });
-      onJoined(competitor);
-      setExpanded(false);
-      setName("");
-    } catch (err) {
-      setError(extractGenericMessage(err, "Couldn't add that competitor."));
-    } finally {
-      setJoining(false);
-    }
-  };
-
-  return (
-    <div className="card elev-sm stack">
-      <div className="card-title">{hasHumanCompetitor ? "Add another competitor" : "Join this league"}</div>
-      <p className="card-body">
-        {hasHumanCompetitor
-          ? "Names must be unique within this competition -- give this one a distinct name."
-          : "You're not a competitor yet -- add yourself to start trading against the AI competitors."}
-      </p>
-      <div className="field">
-        <label htmlFor="join-name">Name</label>
-        <input id="join-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
-      {error && <p className="form-error">{error}</p>}
-      <div className="dialog-actions">
-        {hasHumanCompetitor && (
-          <button type="button" className="btn btn-secondary" onClick={() => setExpanded(false)}>
-            Cancel
-          </button>
-        )}
-        <button type="button" className="btn btn-primary" onClick={handleJoin} disabled={joining}>
-          {joining ? "Adding…" : hasHumanCompetitor ? "Add competitor" : "Join as competitor"}
-        </button>
-      </div>
     </div>
   );
 }
@@ -227,13 +225,16 @@ type Tab = (typeof TABS)[number];
 
 function CompetitorPanel({
   summary,
+  models,
   refreshSignal,
   onTradeFilled,
 }: {
   summary: CompetitorSummary;
+  models: LeagueModel[];
   refreshSignal: number;
   onTradeFilled: () => void;
 }) {
+  const provider = models.find((m) => m.model_id === summary.assistant_model)?.provider ?? "anthropic";
   const [tab, setTab] = useState<Tab>("positions");
   const [detail, setDetail] = useState<CompetitorDetail | null>(null);
   const [trades, setTrades] = useState<Trade[] | null>(null);
@@ -316,11 +317,12 @@ function CompetitorPanel({
         <div className="table-wrap">
           {!detail && <p className="text-muted">Loading…</p>}
           {detail && detail.positions.length === 0 && <p className="text-muted">No open positions.</p>}
-          {detail && detail.positions.length > 0 && (
+          {detail && (
             <table className="table">
               <thead>
                 <tr>
                   <th>Ticker</th>
+                  <th>Value</th>
                   <th>Instrument</th>
                   <th>Qty</th>
                   <th>Avg cost</th>
@@ -328,9 +330,18 @@ function CompetitorPanel({
                 </tr>
               </thead>
               <tbody>
+                <tr>
+                  <td>SPAXX (CASH)</td>
+                  <td>{formatUsd(Number(detail.cash_balance))}</td>
+                  <td colSpan={3} className="text-muted">
+                    Cash
+                  </td>
+                  <td></td>
+                </tr>
                 {detail.positions.map((p, i) => (
                   <tr key={i}>
                     <td>{p.ticker}</td>
+                    <td>{formatUsd(Number(p.current_value))}</td>
                     <td>
                       {p.instrument_type}
                       {p.strike && ` $${p.strike} exp ${p.expiration}`}
@@ -437,7 +448,7 @@ function CompetitorPanel({
       )}
 
       {openTurnId !== null && (
-        <TurnTranscriptModal competitorId={summary.id} turnId={openTurnId} onClose={() => setOpenTurnId(null)} />
+        <TurnTranscriptModal competitorId={summary.id} turnId={openTurnId} provider={provider} onClose={() => setOpenTurnId(null)} />
       )}
     </div>
   );

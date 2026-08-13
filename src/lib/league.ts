@@ -183,16 +183,33 @@ export interface TurnSummary {
   created_at: string;
 }
 
-// Assistant-role entries carry raw content blocks verbatim from whichever
-// provider ran the turn (`block.model_dump()` server-side) -- there's no
-// shared shape between them: Anthropic sends text/tool_use/server_tool_use/
-// web_search_tool_result, OpenAI sends message/function_call/
-// function_call_output/web_search_call. Kept loose rather than a full union
-// since new block types shouldn't need a frontend change to render
-// "something happened here" -- render code should branch on the
-// competitor's provider (see LeagueModel), not on sniffing `type` strings.
+// Assistant-role entries carry raw items verbatim from whichever provider
+// ran the turn (`item.model_dump(exclude_none=True)` server-side) -- there's
+// no shared shape between them, and per-provider the items aren't uniformly
+// nested under a `content` array either:
+//  - Anthropic: one entry per turn, `content` is an array of
+//    text/tool_use/server_tool_use/web_search_tool_result blocks.
+//  - OpenAI: one entry PER RESPONSE ITEM, fields flattened directly onto
+//    the entry (llm_openai.py does `{"role": "assistant", **item.model_dump()}`
+//    per item). `message` items keep their own `content` array of
+//    output_text/refusal parts; `function_call_output` items carry no
+//    `role` at all; `reasoning` items routinely have empty summary/content
+//    (effort="low" requests no summary) plus an opaque `encrypted_content`
+//    blob -- that's expected, not a bug.
+//  - Gemini: one entry per `Part`, also flattened, and Part has NO `type`
+//    discriminator at all (SDK contract: "exactly one field should be
+//    set") -- the frontend has to sniff by which key is present
+//    (function_call / function_response [role "tool"] / tool_call /
+//    tool_response [textless server-side built-in tool step] / text, with
+//    `thought: true` marking a text part as reasoning rather than final
+//    output). `grounding_metadata` entries are backend-synthesized (not
+//    SDK-native) and are the one Gemini entry that does carry a `type`.
+// Kept loose rather than a full union since new item types (e.g. a future
+// `image_generation_call`) shouldn't need a frontend change to render
+// "something happened here" -- unrecognized shapes fall back to a raw,
+// collapsed JSON dump rather than being silently dropped.
 export interface TranscriptBlock {
-  type: string;
+  type?: string;
   text?: string;
   name?: string;
   input?: unknown;
@@ -200,9 +217,11 @@ export interface TranscriptBlock {
 }
 
 export interface TranscriptEntry {
-  role: "user" | "assistant";
+  role?: "user" | "assistant" | "tool";
+  type?: string;
   text?: string;
   content?: TranscriptBlock[];
+  [key: string]: unknown;
 }
 
 export interface TurnDetail extends TurnSummary {

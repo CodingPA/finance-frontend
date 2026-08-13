@@ -468,3 +468,13 @@
   border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--color-text) 6%, transparent);
 }
+
+details.league-transcript-tool > summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+details.league-transcript-tool > pre,
+details.league-transcript-tool > p {
+  margin: var(--space-2) 0 0;
+}

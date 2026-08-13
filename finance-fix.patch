@@ -1,0 +1,69 @@
+From bbdf9d6fc1da1956932e25386e37d2a925852e59 Mon Sep 17 00:00:00 2001
+From: deployer <deployer@ip-172-31-46-220.ec2.internal>
+Date: Thu, 13 Aug 2026 16:26:13 +0000
+Subject: [PATCH] Update nginx config and build info
+
+---
+ deploy/nginx.conf    | 27 ++++++++++++++++++++++++---
+ tsconfig.tsbuildinfo |  2 +-
+ 2 files changed, 25 insertions(+), 4 deletions(-)
+
+diff --git a/deploy/nginx.conf b/deploy/nginx.conf
+index 43a5c49..d902c44 100644
+--- a/deploy/nginx.conf
++++ b/deploy/nginx.conf
+@@ -15,13 +15,11 @@
+ # lines are hand-written here.
+ 
+ server {
+-    listen 80;
+-    listen [::]:80;
+     server_name finance.codingpa.com;
+ 
+     # Deploy user's home directory -- adjust if the deploy user's name or
+     # clone location ever changes.
+-    root /home/deploy/finance-frontend/dist;
++    root /home/deployer/finance-frontend/dist;
+     index index.html;
+ 
+     location /api/ {
+@@ -57,4 +55,27 @@ server {
+     location / {
+         try_files $uri /index.html;
+     }
++
++    listen [::]:443 ssl; # managed by Certbot
++    listen 443 ssl; # managed by Certbot
++    ssl_certificate /etc/letsencrypt/live/finance.codingpa.com/fullchain.pem; # managed by Certbot
++    ssl_certificate_key /etc/letsencrypt/live/finance.codingpa.com/privkey.pem; # managed by Certbot
++    include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
++    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
++
+ }
++
++
++server {
++    if ($host = finance.codingpa.com) {
++        return 301 https://$host$request_uri;
++    } # managed by Certbot
++
++
++    listen 80;
++    listen [::]:80;
++    server_name finance.codingpa.com;
++    return 404; # managed by Certbot
++
++
++}
+\ No newline at end of file
+diff --git a/tsconfig.tsbuildinfo b/tsconfig.tsbuildinfo
+index efb2951..e0f6ac4 100644
+--- a/tsconfig.tsbuildinfo
++++ b/tsconfig.tsbuildinfo
+@@ -1 +1 @@
+-{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/chatassistant.tsx","./src/components/dataflag.tsx","./src/components/googlebutton.tsx","./src/components/infotip.tsx","./src/components/modal.tsx","./src/components/navbar.tsx","./src/components/notificationbell.tsx","./src/components/protectedroute.tsx","./src/components/trademodal.tsx","./src/components/turntranscriptmodal.tsx","./src/context/authcontext.tsx","./src/hooks/userealtimestatus.ts","./src/lib/api.ts","./src/lib/assistant.ts","./src/lib/clips.ts","./src/lib/companies.ts","./src/lib/formerrors.ts","./src/lib/format.ts","./src/lib/journal.ts","./src/lib/league.ts","./src/lib/media.ts","./src/lib/notifications.ts","./src/lib/wiki.ts","./src/lib/ws.ts","./src/pages/dashboardpage.tsx","./src/pages/leaguepage.tsx","./src/pages/loginpage.tsx","./src/pages/registerpage.tsx","./src/pages/screenerpage.tsx"],"version":"5.9.3"}
+\ No newline at end of file
++{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/AddCompetitorModal.tsx","./src/components/ChatAssistant.tsx","./src/components/DataFlag.tsx","./src/components/GoogleButton.tsx","./src/components/InfoTip.tsx","./src/components/Modal.tsx","./src/components/NavBar.tsx","./src/components/NotificationBell.tsx","./src/components/ProtectedRoute.tsx","./src/components/TradeModal.tsx","./src/components/TurnTranscriptModal.tsx","./src/context/AuthContext.tsx","./src/hooks/useRealtimeStatus.ts","./src/lib/api.ts","./src/lib/assistant.ts","./src/lib/clips.ts","./src/lib/companies.ts","./src/lib/formErrors.ts","./src/lib/format.ts","./src/lib/journal.ts","./src/lib/league.ts","./src/lib/media.ts","./src/lib/notifications.ts","./src/lib/wiki.ts","./src/lib/ws.ts","./src/pages/CompetitorDashboardPage.tsx","./src/pages/DashboardPage.tsx","./src/pages/LeaguePage.tsx","./src/pages/LoginPage.tsx","./src/pages/RegisterPage.tsx","./src/pages/ScreenerPage.tsx"],"version":"5.9.3"}
+\ No newline at end of file
+-- 
+2.43.0

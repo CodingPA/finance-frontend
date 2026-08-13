@@ -7,7 +7,7 @@
 import { ApiError, apiFetch, parseJsonOrThrow } from "./api";
 
 export type CompetitorKind = "ai" | "human";
-export type ModelProvider = "anthropic" | "openai";
+export type ModelProvider = "anthropic" | "openai" | "gemini";
 export type InstrumentType = "stock" | "call" | "put";
 export type TradeSide = "buy" | "sell" | "sell_to_open" | "buy_to_close";
 export type TradeStatus = "filled" | "rejected";
@@ -136,6 +136,23 @@ export interface Wakeup {
   completed_at: string | null;
 }
 
+/** One of the 3 fixed daily floor slots (news/open/close) -- computed live
+ *  rather than backed by a DB row, since an AgentWakeup only exists once a
+ *  forced check-in actually fires. Always exactly 3, sorted soonest-first,
+ *  so slot order isn't fixed news->open->close. */
+export interface ForcedCheckin {
+  label: string;
+  next_run_at: string;
+}
+
+/** The competitor's own pending schedule_wakeup calls (status="scheduled",
+ *  run_at in the future), soonest-first -- empty if it hasn't scheduled
+ *  anything. Human competitors get both lists empty rather than a 400. */
+export interface NextWakeups {
+  forced_checkins: ForcedCheckin[];
+  self_scheduled: Wakeup[];
+}
+
 export interface TurnSummary {
   id: number;
   trigger: TurnTrigger;
@@ -235,6 +252,11 @@ export async function submitTrade(competitorId: number, trade: NewTrade): Promis
 export async function listWakeups(competitorId: number): Promise<Wakeup[]> {
   const res = await apiFetch(`/league/competitors/${competitorId}/wakeups/`);
   return parseJsonOrThrow<Wakeup[]>(res);
+}
+
+export async function getNextWakeups(competitorId: number): Promise<NextWakeups> {
+  const res = await apiFetch(`/league/competitors/${competitorId}/wakeups/next/`);
+  return parseJsonOrThrow<NextWakeups>(res);
 }
 
 export async function triggerWakeup(competitorId: number, reason?: string): Promise<Wakeup> {

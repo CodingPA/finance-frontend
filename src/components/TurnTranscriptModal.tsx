@@ -5,7 +5,9 @@
 // competitor's provider (Anthropic: text/tool_use/server_tool_use/
 // web_search_tool_result; OpenAI: message/function_call/
 // function_call_output/web_search_call) -- anything unrecognized falls back
-// to a raw dump rather than silently dropping it.
+// to a raw dump rather than silently dropping it. Gemini's block shape
+// hasn't been specced yet, so its transcripts render as a raw dump only
+// until that's known.
 
 import { useEffect, useState } from "react";
 import { Modal } from "./Modal";
@@ -55,9 +57,11 @@ export function TurnTranscriptModal({
             <div className="league-transcript-entry" key={i}>
               <div className="card-kicker">{entry.role === "user" ? "Wake-up prompt" : "Assistant"}</div>
               {entry.text && <p className="league-transcript-text">{entry.text}</p>}
-              {entry.content?.map((block, j) =>
-                provider === "openai" ? <OpenAiBlockView block={block} key={j} /> : <AnthropicBlockView block={block} key={j} />
-              )}
+              {entry.content?.map((block, j) => {
+                if (provider === "openai") return <OpenAiBlockView block={block} key={j} />;
+                if (provider === "anthropic") return <AnthropicBlockView block={block} key={j} />;
+                return <RawBlockView block={block} key={j} />;
+              })}
             </div>
           ))}
         </div>
@@ -98,6 +102,10 @@ function AnthropicBlockView({ block }: { block: TranscriptBlock }) {
       </div>
     );
   }
+  return <pre className="league-transcript-tool">{JSON.stringify(block, null, 2)}</pre>;
+}
+
+function RawBlockView({ block }: { block: TranscriptBlock }) {
   return <pre className="league-transcript-tool">{JSON.stringify(block, null, 2)}</pre>;
 }
 

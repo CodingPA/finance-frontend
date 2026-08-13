@@ -7,8 +7,14 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Modal } from "./Modal";
 import { useAuth } from "../context/AuthContext";
-import { addCompetitor, listModels, type CompetitorKind, type CompetitorSummary, type LeagueModel } from "../lib/league";
+import { addCompetitor, listModels, type CompetitorKind, type CompetitorSummary, type LeagueModel, type ModelProvider } from "../lib/league";
 import { extractFieldErrors, extractGenericMessage, type FieldErrors } from "../lib/formErrors";
+
+const PROVIDER_LABELS: Record<ModelProvider, string> = {
+  anthropic: "Anthropic",
+  openai: "OpenAI",
+  gemini: "Google",
+};
 
 export function AddCompetitorModal({
   competitionId,
@@ -117,7 +123,7 @@ export function AddCompetitorModal({
                 {models?.length === 0 && <option value="">No models available</option>}
                 {models?.map((m) => (
                   <option key={m.model_id} value={m.model_id}>
-                    {m.display_name} ({m.provider === "anthropic" ? "Anthropic" : "OpenAI"})
+                    {m.display_name} ({PROVIDER_LABELS[m.provider]})
                     {m.is_default ? " -- default" : ""}
                   </option>
                 ))}

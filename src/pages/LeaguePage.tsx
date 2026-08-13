@@ -13,6 +13,7 @@ import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import { AddCompetitorModal } from "../components/AddCompetitorModal";
 import {
   getCompetitor,
+  getNextWakeups,
   getScoreboard,
   getScratchpad,
   listCompetitions,
@@ -25,6 +26,7 @@ import {
   type CompetitorDetail,
   type CompetitorSummary,
   type LeagueModel,
+  type NextWakeups,
   type Scoreboard,
   type Scratchpad,
   type Trade,
@@ -176,7 +178,7 @@ export function LeaguePage() {
                   {scoreboard.competitors.map((c) => (
                     <tr
                       key={c.id}
-                      onClick={() => setSelectedId(c.id)}
+                      onClick={() => setSelectedId((prev) => (prev === c.id ? null : c.id))}
                       className={c.id === selectedId ? "league-row-active" : undefined}
                       style={{ cursor: "pointer" }}
                     >
@@ -240,6 +242,7 @@ function CompetitorPanel({
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [scratchpad, setScratchpad] = useState<Scratchpad | null>(null);
   const [turns, setTurns] = useState<TurnSummary[] | null>(null);
+  const [nextWakeups, setNextWakeups] = useState<NextWakeups | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [tradeModalOpen, setTradeModalOpen] = useState(false);
@@ -256,6 +259,7 @@ function CompetitorPanel({
     if (summary.kind === "ai") {
       loads.push(getScratchpad(summary.id).then((s) => !cancelled && setScratchpad(s)));
       loads.push(listTurns(summary.id).then((t) => !cancelled && setTurns(t)));
+      loads.push(getNextWakeups(summary.id).then((w) => !cancelled && setNextWakeups(w)));
     }
     Promise.all(loads).catch((err) => {
       if (!cancelled) setError(extractGenericMessage(err, "Couldn't load competitor detail."));
@@ -292,6 +296,22 @@ function CompetitorPanel({
           </button>
         )}
       </div>
+
+      {summary.kind === "ai" && nextWakeups && (nextWakeups.forced_checkins.length > 0 || nextWakeups.self_scheduled.length > 0) && (
+        <div className="page-head">
+          {nextWakeups.forced_checkins.map((c, i) => (
+            <span className="tag tag-neutral" key={`forced-${i}`} title="Forced check-in">
+              {c.label} · {formatDateTime(c.next_run_at)}
+            </span>
+          ))}
+          {nextWakeups.self_scheduled.map((w) => (
+            <span className="tag tag-accent" key={`self-${w.id}`} title={w.reason}>
+              Self-scheduled · {formatDateTime(w.run_at)}
+            </span>
+          ))}
+        </div>
+      )}
+
       {summary.system_prompt && <p className="card-body">{summary.system_prompt}</p>}
 
       {error && <p className="form-error">{error}</p>}

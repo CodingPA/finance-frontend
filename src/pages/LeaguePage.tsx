@@ -202,6 +202,7 @@ export function LeaguePage() {
               models={models}
               refreshSignal={refreshSignal}
               onTradeFilled={() => competition && loadCompetitionData(competition.id).catch(() => {})}
+              onCollapse={() => setSelectedId(null)}
             />
           )}
 
@@ -230,11 +231,13 @@ function CompetitorPanel({
   models,
   refreshSignal,
   onTradeFilled,
+  onCollapse,
 }: {
   summary: CompetitorSummary;
   models: LeagueModel[];
   refreshSignal: number;
   onTradeFilled: () => void;
+  onCollapse: () => void;
 }) {
   const provider = models.find((m) => m.model_id === summary.assistant_model)?.provider ?? "anthropic";
   const [tab, setTab] = useState<Tab>("positions");
@@ -295,6 +298,9 @@ function CompetitorPanel({
             {waking ? "Waking…" : "Wake up now"}
           </button>
         )}
+        <button type="button" className="btn btn-secondary" style={{ marginLeft: "auto" }} onClick={onCollapse}>
+          Collapse
+        </button>
       </div>
 
       {summary.kind === "ai" && nextWakeups && (nextWakeups.forced_checkins.length > 0 || nextWakeups.self_scheduled.length > 0) && (

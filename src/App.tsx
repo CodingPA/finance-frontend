@@ -8,6 +8,7 @@ import { RegisterPage } from "./pages/RegisterPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ScreenerPage } from "./pages/ScreenerPage";
 import { LeaguePage } from "./pages/LeaguePage";
+import { CompetitorDashboardPage } from "./pages/CompetitorDashboardPage";
 
 export function App() {
   return (
@@ -46,6 +47,14 @@ export function App() {
             element={
               <ProtectedRoute>
                 <LeaguePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/league/competitors/:id"
+            element={
+              <ProtectedRoute>
+                <CompetitorDashboardPage />
               </ProtectedRoute>
             }
           />

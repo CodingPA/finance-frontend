@@ -44,7 +44,7 @@ export function TurnTranscriptModal({
   }, [competitorId, turnId]);
 
   return (
-    <Modal title="Turn transcript" onClose={onClose} wide>
+    <Modal title="Turn transcript" onClose={onClose} wide className="league-transcript-dialog">
       {error && <p className="form-error">{error}</p>}
       {!error && !turn && <p className="text-muted">Loading…</p>}
       {turn && (

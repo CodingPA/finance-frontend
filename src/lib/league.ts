@@ -12,7 +12,13 @@ export type InstrumentType = "stock" | "call" | "put";
 export type TradeSide = "buy" | "sell" | "sell_to_open" | "buy_to_close";
 export type TradeStatus = "filled" | "rejected";
 export type WakeupStatus = "scheduled" | "completed" | "failed";
-export type TurnTrigger = "scheduled_wakeup" | "manual";
+export type TurnTrigger = "scheduled_wakeup" | "manual" | "forced_checkin";
+
+export const TURN_TRIGGER_LABELS: Record<TurnTrigger, string> = {
+  scheduled_wakeup: "Self-scheduled",
+  manual: "Manual",
+  forced_checkin: "Forced check-in",
+};
 
 export interface Competition {
   id: number;
@@ -73,6 +79,8 @@ export interface Position {
   opened_at: string;
 }
 
+// AI-only fields (assistant_model/system_prompt) are absent entirely on a
+// human row, not null -- same convention as CompetitorSummary.
 export interface CompetitorDetail {
   id: number;
   name: string;
@@ -80,6 +88,8 @@ export interface CompetitorDetail {
   cash_balance: string;
   account_value: string;
   total_return_pct: string;
+  assistant_model?: string;
+  system_prompt?: string;
   positions: Position[];
 }
 

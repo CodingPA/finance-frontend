@@ -4,7 +4,8 @@
 // picker and just loads the first one -- add a picker later if a second
 // competition ever gets created.
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { realtime } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import { formatDateTime, formatPercent, formatPrice, formatUsd } from "../lib/format";
@@ -22,6 +23,7 @@ import {
   listTrades,
   listTurns,
   triggerWakeup,
+  TURN_TRIGGER_LABELS,
   type Competition,
   type CompetitorDetail,
   type CompetitorSummary,
@@ -123,7 +125,6 @@ export function LeaguePage() {
 
   const hasHumanCompetitor = competitors.some((c) => c.kind === "human");
   const aiCompetitorCount = competitors.filter((c) => c.kind === "ai").length;
-  const selected = competitors.find((c) => c.id === selectedId) ?? null;
 
   return (
     <div className="page">
@@ -172,38 +173,50 @@ export function LeaguePage() {
                     <th>Account value</th>
                     <th>Total return</th>
                     <th>Max drawdown</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {scoreboard.competitors.map((c) => (
-                    <tr
-                      key={c.id}
-                      onClick={() => setSelectedId((prev) => (prev === c.id ? null : c.id))}
-                      className={c.id === selectedId ? "league-row-active" : undefined}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <td>
-                        {c.name} <span className={`tag ${c.kind === "ai" ? "tag-outline" : "tag-accent"}`}>{c.kind === "ai" ? "AI" : "YOU"}</span>
-                      </td>
-                      <td>{formatUsd(Number(c.account_value))}</td>
-                      <td>{formatPercent(Number(c.total_return_pct))}</td>
-                      <td>{formatPercent(Number(c.max_drawdown_pct))}</td>
-                    </tr>
-                  ))}
+                  {scoreboard.competitors.map((c) => {
+                    const summary = competitors.find((comp) => comp.id === c.id) ?? null;
+                    return (
+                      <Fragment key={c.id}>
+                        <tr
+                          onClick={() => setSelectedId((prev) => (prev === c.id ? null : c.id))}
+                          className={c.id === selectedId ? "league-row-active" : undefined}
+                          style={{ cursor: "pointer" }}
+                        >
+                          <td>
+                            {c.name} <span className={`tag ${c.kind === "ai" ? "tag-outline" : "tag-accent"}`}>{c.kind === "ai" ? "AI" : "YOU"}</span>
+                          </td>
+                          <td>{formatUsd(Number(c.account_value))}</td>
+                          <td>{formatPercent(Number(c.total_return_pct))}</td>
+                          <td>{formatPercent(Number(c.max_drawdown_pct))}</td>
+                          <td onClick={(e) => e.stopPropagation()}>
+                            <Link to={`/league/competitors/${c.id}`} className="btn btn-secondary">
+                              Dashboard
+                            </Link>
+                          </td>
+                        </tr>
+                        {c.id === selectedId && summary && (
+                          <tr>
+                            <td colSpan={5} className="league-expanded-cell">
+                              <CompetitorPanel
+                                summary={summary}
+                                models={models}
+                                refreshSignal={refreshSignal}
+                                onTradeFilled={() => competition && loadCompetitionData(competition.id).catch(() => {})}
+                                onCollapse={() => setSelectedId(null)}
+                              />
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
-          )}
-
-          {selected && (
-            <CompetitorPanel
-              key={selected.id}
-              summary={selected}
-              models={models}
-              refreshSignal={refreshSignal}
-              onTradeFilled={() => competition && loadCompetitionData(competition.id).catch(() => {})}
-              onCollapse={() => setSelectedId(null)}
-            />
           )}
 
           {addModalOpen && (
@@ -449,7 +462,7 @@ function CompetitorPanel({
                   {turns.map((t) => (
                     <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => setOpenTurnId(t.id)}>
                       <td>{formatDateTime(t.created_at)}</td>
-                      <td>{t.trigger === "manual" ? "Manual" : "Self-scheduled"}</td>
+                      <td>{TURN_TRIGGER_LABELS[t.trigger]}</td>
                       <td>{t.tool_calls.length > 0 ? t.tool_calls.join(", ") : "—"}</td>
                       <td>${t.cost_usd}</td>
                     </tr>

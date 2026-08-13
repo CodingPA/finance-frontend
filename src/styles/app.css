@@ -424,6 +424,23 @@
   background: color-mix(in srgb, var(--color-accent) 8%, transparent);
 }
 
+/* Drag-to-resize from the bottom-right corner -- native `resize`, no JS.
+ * Overrides dialog-lg's fixed max-height/overflow-y so growth isn't capped. */
+.league-transcript-dialog {
+  resize: both;
+  overflow: auto;
+  max-width: 95vw;
+  max-height: 90vh;
+  min-width: 360px;
+  min-height: 240px;
+}
+
+.table td.league-expanded-cell {
+  padding: var(--space-3);
+  background: color-mix(in srgb, var(--color-text) 3%, transparent);
+  cursor: default;
+}
+
 .league-transcript-entry {
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--color-divider);
@@ -435,6 +452,7 @@
 
 .league-transcript-text {
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   font-size: 13px;
   line-height: 1.5;
   margin: 0 0 var(--space-2);
@@ -444,7 +462,7 @@
   font-size: 12px;
   font-family: monospace;
   white-space: pre-wrap;
-  overflow-x: auto;
+  overflow-wrap: anywhere;
   padding: var(--space-2);
   margin: 0 0 var(--space-2);
   border-radius: var(--radius-md);

@@ -62,6 +62,7 @@
 
 .screener-search {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
   align-items: flex-end;
   margin-bottom: var(--space-6);
@@ -431,7 +432,7 @@
   overflow: auto;
   max-width: 95vw;
   max-height: 90vh;
-  min-width: 360px;
+  min-width: min(360px, 92vw);
   min-height: 240px;
 }
 
@@ -477,4 +478,107 @@ details.league-transcript-tool > summary {
 details.league-transcript-tool > pre,
 details.league-transcript-tool > p {
   margin: var(--space-2) 0 0;
+}
+
+/* — bottom nav (mobile app shell) — */
+/* Breakpoint must match MOBILE_QUERY in hooks/useIsMobile.ts. */
+.bottom-nav {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --bottom-nav-height: 60px;
+  }
+
+  /* Keeps page content (and the chat FAB) from ending up underneath the
+     fixed bottom nav. */
+  .page {
+    padding-bottom: calc(var(--bottom-nav-height) + var(--space-4) + env(safe-area-inset-bottom));
+  }
+
+  .chat-fab {
+    bottom: calc(var(--bottom-nav-height) + var(--space-3) + env(safe-area-inset-bottom));
+  }
+
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 28;
+    height: var(--bottom-nav-height);
+    padding-bottom: env(safe-area-inset-bottom);
+    background: var(--color-surface);
+    border-top: 2px solid var(--color-divider);
+  }
+
+  .bottom-nav-tab {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    color: color-mix(in srgb, var(--color-text) 60%, transparent);
+    text-decoration: none;
+    font-size: 11px;
+  }
+
+  .bottom-nav-tab svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .bottom-nav-tab.is-active {
+    color: var(--color-accent);
+  }
+
+  /* Dense data tables (league scoreboard, trades, positions, turn logs)
+     don't fit a phone width -- rather than a horizontal-scrolling grid,
+     .stack-mobile turns each row into a label/value card. Cells opt in with
+     data-label; a cell without one (e.g. a colSpan summary cell) just shows
+     its content with no label line. */
+  .table-wrap.stack-mobile table,
+  .table-wrap.stack-mobile tbody,
+  .table-wrap.stack-mobile tr,
+  .table-wrap.stack-mobile td {
+    display: block;
+    width: 100%;
+  }
+
+  .table-wrap.stack-mobile thead {
+    display: none;
+  }
+
+  .table-wrap.stack-mobile tr {
+    border: 1px solid var(--color-divider);
+    border-radius: var(--radius-md);
+    padding: var(--space-2);
+    margin-bottom: var(--space-2);
+  }
+
+  .table-wrap.stack-mobile tr:hover {
+    background: none;
+  }
+
+  .table-wrap.stack-mobile td {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--color-divider);
+  }
+
+  .table-wrap.stack-mobile td:last-child {
+    border-bottom: none;
+  }
+
+  .table-wrap.stack-mobile td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--color-text) 60%, transparent);
+    margin-bottom: 2px;
+  }
 }

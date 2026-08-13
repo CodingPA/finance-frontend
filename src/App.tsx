@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { NavBar } from "./components/NavBar";
+import { BottomNav } from "./components/BottomNav";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { ChatAssistant } from "./components/ChatAssistant";
 import { LoginPage } from "./pages/LoginPage";
@@ -61,6 +62,7 @@ export function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         <ChatAssistant />
+        <BottomNav />
       </div>
     </AuthProvider>
   );

@@ -248,6 +248,16 @@ export async function getScoreboard(competitionId: number): Promise<Scoreboard> 
   return parseJsonOrThrow<Scoreboard>(res);
 }
 
+/** Force a live re-quote of every open position in the competition. Async --
+ *  this only confirms the job was queued; the actual refreshed scoreboard
+ *  arrives as a `league.scoreboard_refreshed` event on
+ *  ws/league/{competitionId}/ (docs/league-api.md's "Live competition
+ *  feed"), not in this response. */
+export async function refreshCompetition(competitionId: number): Promise<{ status: string; competition_id: number }> {
+  const res = await apiFetch(`/league/competitions/${competitionId}/refresh/`, { method: "POST" });
+  return parseJsonOrThrow(res);
+}
+
 export async function listCompetitors(competitionId: number): Promise<CompetitorSummary[]> {
   const res = await apiFetch(`/league/competitions/${competitionId}/competitors/`);
   return parseJsonOrThrow<CompetitorSummary[]>(res);
@@ -264,6 +274,18 @@ export async function addCompetitor(competitionId: number, competitor: NewCompet
 export async function getCompetitor(competitorId: number): Promise<CompetitorDetail> {
   const res = await apiFetch(`/league/competitors/${competitorId}/`);
   return parseJsonOrThrow<CompetitorDetail>(res);
+}
+
+/** Force a live re-quote of just this competitor's held tickers/contracts --
+ *  narrower than refreshCompetition() above. Async -- the refreshed row
+ *  arrives as a `league.competitor_refreshed` event on
+ *  ws/league/{competitionId}/, not in this response, and that event's
+ *  payload omits `positions` (only account-level fields refresh live) --
+ *  re-GET getCompetitor() after it lands if the positions table needs to
+ *  reflect the new marks too. */
+export async function refreshCompetitor(competitorId: number): Promise<{ status: string; competitor_id: number }> {
+  const res = await apiFetch(`/league/competitors/${competitorId}/refresh/`, { method: "POST" });
+  return parseJsonOrThrow(res);
 }
 
 export async function listTrades(competitorId: number): Promise<Trade[]> {

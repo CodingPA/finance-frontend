@@ -6,9 +6,9 @@
 // check-in, self-scheduled, or manual -- distinct concepts, both surfaced
 // here since neither replaces the other.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { realtime } from "../lib/ws";
+import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import { formatDateTime, formatPercent, formatPrice, formatUsd } from "../lib/format";
 import { TradeModal } from "../components/TradeModal";
@@ -17,9 +17,11 @@ import {
   getCompetitor,
   getNextWakeups,
   getScratchpad,
+  listCompetitions,
   listModels,
   listTrades,
   listTurns,
+  refreshCompetitor,
   triggerWakeup,
   TURN_TRIGGER_LABELS,
   type CompetitorDetail,
@@ -29,6 +31,12 @@ import {
   type Trade,
   type TurnSummary,
 } from "../lib/league";
+
+// A refresh() POST only confirms the job was queued -- if the
+// league.competitor_refreshed push doesn't land within this window (socket
+// down, Redis hiccup), fall back to a plain re-fetch instead of spinning
+// forever (docs/league-api.md's "Building the manual-refresh button").
+const REFRESH_FALLBACK_MS = 15_000;
 
 export function CompetitorDashboardPage() {
   const { id } = useParams();
@@ -48,9 +56,23 @@ export function CompetitorDashboardPage() {
   const [openTurnId, setOpenTurnId] = useState<number | null>(null);
   const [waking, setWaking] = useState(false);
 
+  const [competitionId, setCompetitionId] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     listModels()
       .then(setModels)
+      .catch(() => {});
+  }, []);
+
+  // CompetitorDetail doesn't carry its competition id, but the live feed
+  // socket needs one to connect -- only one competition is seeded today
+  // (same assumption LeaguePage makes), so take the first.
+  useEffect(() => {
+    listCompetitions()
+      .then((all) => setCompetitionId(all[0]?.id ?? null))
       .catch(() => {});
   }, []);
 
@@ -104,6 +126,35 @@ export function CompetitorDashboardPage() {
     });
   }, [competitorId]);
 
+  // league.competitor_refreshed (docs/league-api.md's "Live competition
+  // feed") -- the manual-refresh button's reply. Its payload omits
+  // `positions`, so rather than patch fields in place, bump refreshSignal to
+  // pull a full getCompetitor() through the effect above -- that's the only
+  // way the positions table's current_price/current_value pick up the new
+  // marks too.
+  useEffect(() => {
+    if (!competitionId) return;
+    const socket = new LeagueFeedSocket(competitionId);
+    const off = socket.on("league.competitor_refreshed", (msg) => {
+      const competitor = msg.competitor as { id?: number } | undefined;
+      if (competitor?.id !== competitorId) return;
+      setRefreshing(false);
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+      setRefreshSignal((k) => k + 1);
+    });
+    return () => {
+      off();
+      socket.close();
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+    };
+  }, [competitionId, competitorId]);
+
   const handleWakeUp = async () => {
     setWaking(true);
     try {
@@ -113,6 +164,26 @@ export function CompetitorDashboardPage() {
     } finally {
       setWaking(false);
     }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshError(null);
+    setRefreshing(true);
+    try {
+      await refreshCompetitor(competitorId);
+    } catch (err) {
+      setRefreshing(false);
+      setRefreshError(extractGenericMessage(err, "Couldn't refresh prices."));
+      return;
+    }
+    // league.competitor_refreshed normally clears this well before the
+    // fallback fires -- see the socket effect above.
+    if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+    refreshTimeoutRef.current = setTimeout(() => {
+      refreshTimeoutRef.current = null;
+      setRefreshing(false);
+      setRefreshSignal((k) => k + 1);
+    }, REFRESH_FALLBACK_MS);
   };
 
   const provider = models.find((m) => m.model_id === detail?.assistant_model)?.provider ?? "anthropic";
@@ -132,17 +203,29 @@ export function CompetitorDashboardPage() {
             <h2>{detail.name}</h2>
             <span className={`tag ${detail.kind === "ai" ? "tag-outline" : "tag-accent"}`}>{detail.kind === "ai" ? "AI" : "YOU"}</span>
             {detail.assistant_model && <span className="tag tag-neutral">{detail.assistant_model}</span>}
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ marginLeft: "auto" }}
+              onClick={handleRefresh}
+              disabled={refreshing}
+              title="Force a live re-quote of this competitor's held tickers, right now"
+            >
+              {refreshing ? "Refreshing…" : "Refresh prices"}
+            </button>
             {detail.kind === "human" && (
-              <button type="button" className="btn btn-primary" style={{ marginLeft: "auto" }} onClick={() => setTradeModalOpen(true)}>
+              <button type="button" className="btn btn-primary" onClick={() => setTradeModalOpen(true)}>
                 New trade
               </button>
             )}
             {detail.kind === "ai" && (
-              <button type="button" className="btn btn-secondary" style={{ marginLeft: "auto" }} onClick={handleWakeUp} disabled={waking}>
+              <button type="button" className="btn btn-secondary" onClick={handleWakeUp} disabled={waking}>
                 {waking ? "Waking…" : "Wake up now"}
               </button>
             )}
           </div>
+
+          {refreshError && <p className="form-error">{refreshError}</p>}
 
           {detail.system_prompt && <p className="card-body">{detail.system_prompt}</p>}
 
@@ -168,7 +251,7 @@ export function CompetitorDashboardPage() {
 
           <div className="card elev-sm stack">
             <div className="card-title">Positions</div>
-            <div className="table-wrap">
+            <div className="table-wrap stack-mobile">
               {detail.positions.length === 0 && <p className="text-muted">No open positions.</p>}
               <table className="table">
                 <thead>
@@ -183,8 +266,8 @@ export function CompetitorDashboardPage() {
                 </thead>
                 <tbody>
                   <tr>
-                    <td>SPAXX (CASH)</td>
-                    <td>{formatUsd(Number(detail.cash_balance))}</td>
+                    <td data-label="Ticker">SPAXX (CASH)</td>
+                    <td data-label="Value">{formatUsd(Number(detail.cash_balance))}</td>
                     <td colSpan={3} className="text-muted">
                       Cash
                     </td>
@@ -192,16 +275,16 @@ export function CompetitorDashboardPage() {
                   </tr>
                   {detail.positions.map((p, i) => (
                     <tr key={i}>
-                      <td>{p.ticker}</td>
-                      <td>{formatUsd(Number(p.current_value))}</td>
-                      <td>
+                      <td data-label="Ticker">{p.ticker}</td>
+                      <td data-label="Value">{formatUsd(Number(p.current_value))}</td>
+                      <td data-label="Instrument">
                         {p.instrument_type}
                         {p.strike && ` $${p.strike} exp ${p.expiration}`}
                         {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
                       </td>
-                      <td>{p.quantity}</td>
-                      <td>{formatPrice(Number(p.avg_cost))}</td>
-                      <td>{formatDateTime(p.opened_at)}</td>
+                      <td data-label="Qty">{p.quantity}</td>
+                      <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
+                      <td data-label="Opened">{formatDateTime(p.opened_at)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -211,7 +294,7 @@ export function CompetitorDashboardPage() {
 
           <div className="card elev-sm stack">
             <div className="card-title">Trades</div>
-            <div className="table-wrap">
+            <div className="table-wrap stack-mobile">
               {!trades && <p className="text-muted">Loading…</p>}
               {trades && trades.length === 0 && <p className="text-muted">No trades yet.</p>}
               {trades && trades.length > 0 && (
@@ -230,18 +313,18 @@ export function CompetitorDashboardPage() {
                   <tbody>
                     {trades.map((t) => (
                       <tr key={t.id}>
-                        <td>{formatDateTime(t.created_at)}</td>
-                        <td>{t.side}</td>
-                        <td>
+                        <td data-label="When">{formatDateTime(t.created_at)}</td>
+                        <td data-label="Side">{t.side}</td>
+                        <td data-label="Ticker">
                           {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
                         </td>
-                        <td>{t.quantity}</td>
-                        <td>{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
-                        <td>
+                        <td data-label="Qty">{t.quantity}</td>
+                        <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
+                        <td data-label="Status">
                           <span className={`tag ${t.status === "filled" ? "tag-accent" : "tag-neutral"}`}>{t.status}</span>
                           {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
                         </td>
-                        <td>{t.thesis}</td>
+                        <td data-label="Thesis">{t.thesis}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -268,7 +351,7 @@ export function CompetitorDashboardPage() {
               {!turns && <p className="text-muted">Loading…</p>}
               {turns && turns.length === 0 && <p className="text-muted">No wake-ups yet.</p>}
               {turns && turns.length > 0 && (
-                <div className="table-wrap">
+                <div className="table-wrap stack-mobile">
                   <table className="table">
                     <thead>
                       <tr>
@@ -281,10 +364,10 @@ export function CompetitorDashboardPage() {
                     <tbody>
                       {turns.map((t) => (
                         <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => setOpenTurnId(t.id)}>
-                          <td>{formatDateTime(t.created_at)}</td>
-                          <td>{TURN_TRIGGER_LABELS[t.trigger]}</td>
-                          <td>{t.tool_calls.length > 0 ? t.tool_calls.join(", ") : "—"}</td>
-                          <td>${t.cost_usd}</td>
+                          <td data-label="When">{formatDateTime(t.created_at)}</td>
+                          <td data-label="Trigger">{TURN_TRIGGER_LABELS[t.trigger]}</td>
+                          <td data-label="Tools used">{t.tool_calls.length > 0 ? t.tool_calls.join(", ") : "—"}</td>
+                          <td data-label="Cost">${t.cost_usd}</td>
                         </tr>
                       ))}
                     </tbody>

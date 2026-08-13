@@ -4,7 +4,7 @@
 // picker and just loads the first one -- add a picker later if a second
 // competition ever gets created.
 
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
@@ -23,6 +23,7 @@ import {
   listModels,
   listTrades,
   listTurns,
+  refreshCompetition,
   triggerWakeup,
   TURN_TRIGGER_LABELS,
   type Competition,
@@ -37,6 +38,12 @@ import {
   type Trade,
   type TurnSummary,
 } from "../lib/league";
+
+// A refresh() POST only confirms the job was queued -- if the
+// league.scoreboard_refreshed push doesn't land within this window (socket
+// down, Redis hiccup), fall back to a plain re-GET instead of spinning
+// forever (docs/league-api.md's "Building the manual-refresh button").
+const REFRESH_FALLBACK_MS = 15_000;
 
 const WAKE_ALL_MAX = 10;
 const WAKE_ALL_DELAY_MS = 1000;
@@ -65,6 +72,16 @@ export function LeaguePage() {
   const [sinceFilter, setSinceFilter] = useState("");
   const [untilFilter, setUntilFilter] = useState("");
   const [kindFilter, setKindFilter] = useState<CompetitorKind | "">("");
+
+  const [refreshingScoreboard, setRefreshingScoreboard] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Read inside the socket effect's "league.trade" handler without making
+  // the socket itself reconnect every time the filter changes.
+  const kindFilterRef = useRef(kindFilter);
+  useEffect(() => {
+    kindFilterRef.current = kindFilter;
+  }, [kindFilter]);
 
   const loadCompetitionData = async (competitionId: number) => {
     const [board, list] = await Promise.all([getScoreboard(competitionId), listCompetitors(competitionId)]);
@@ -136,26 +153,69 @@ export function LeaguePage() {
     };
   }, [competition, topTab, sinceFilter, untilFilter, kindFilter]);
 
-  // Live feed connects as soon as the competition is known, independent of
-  // which tab is active, so trades already loaded stay current even while
-  // looking at Positions. Only prepends once the Trades tab has actually
-  // fetched a base list (trades !== null) -- until then a live push adds
-  // nothing, since opening the tab will pull it fresh from the REST call
-  // above anyway. Respects the kind filter so a filtered view doesn't grow
-  // rows that don't match it; since/until aren't re-checked because a push
+  // One socket per competition page (docs/league-api.md's "Live competition
+  // feed") for everything it carries: the trade feed, and the manual-refresh
+  // button's league.scoreboard_refreshed reply. Live feed connects as soon
+  // as the competition is known, independent of which tab is active, so
+  // trades already loaded stay current even while looking at Positions.
+  // league.trade only prepends once the Trades tab has actually fetched a
+  // base list (trades !== null) -- until then a live push adds nothing,
+  // since opening the tab will pull it fresh from the REST call above
+  // anyway. since/until aren't re-checked against a push because a push
   // always represents "now", which satisfies any realistic date range.
   useEffect(() => {
     if (!competition) return;
-    const socket = new LeagueFeedSocket(competition.id, (msg) => {
-      if (kindFilter && msg.competitor_kind !== kindFilter) return;
+    const socket = new LeagueFeedSocket(competition.id);
+
+    const offTrade = socket.on("league.trade", (msg) => {
+      if (kindFilterRef.current && msg.competitor_kind !== kindFilterRef.current) return;
       setTrades((prev) => (prev ? [msg as unknown as CompetitionTrade, ...prev] : prev));
     });
-    return () => socket.close();
-  }, [competition, kindFilter]);
+
+    const offRefresh = socket.on("league.scoreboard_refreshed", (msg) => {
+      setScoreboard(msg as unknown as Scoreboard);
+      setRefreshingScoreboard(false);
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+    });
+
+    return () => {
+      offTrade();
+      offRefresh();
+      socket.close();
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+    };
+  }, [competition]);
 
   const handleJoined = (competitor: CompetitorSummary) => {
     setCompetitors((prev) => [...prev, competitor]);
     if (competition) loadCompetitionData(competition.id).catch(() => {});
+  };
+
+  const handleRefreshScoreboard = async () => {
+    if (!competition) return;
+    setRefreshError(null);
+    setRefreshingScoreboard(true);
+    try {
+      await refreshCompetition(competition.id);
+    } catch (err) {
+      setRefreshingScoreboard(false);
+      setRefreshError(extractGenericMessage(err, "Couldn't refresh prices."));
+      return;
+    }
+    // league.scoreboard_refreshed normally clears this well before the
+    // fallback fires -- see the socket effect above.
+    if (refreshTimeoutRef.current) clearTimeout(refreshTimeoutRef.current);
+    refreshTimeoutRef.current = setTimeout(() => {
+      refreshTimeoutRef.current = null;
+      setRefreshingScoreboard(false);
+      loadCompetitionData(competition.id).catch(() => {});
+    }, REFRESH_FALLBACK_MS);
   };
 
   const handleWakeAll = async () => {
@@ -189,6 +249,15 @@ export function LeaguePage() {
               type="button"
               className="btn btn-secondary"
               style={{ marginLeft: "auto" }}
+              onClick={handleRefreshScoreboard}
+              disabled={refreshingScoreboard}
+              title="Force a live re-quote of every open position, right now"
+            >
+              {refreshingScoreboard ? "Refreshing…" : "Refresh prices"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
               onClick={handleWakeAll}
               disabled={wakingAll || aiCompetitorCount === 0}
               title={`Wakes up to ${WAKE_ALL_MAX} AI competitors, ${WAKE_ALL_DELAY_MS / 1000}s apart`}
@@ -201,6 +270,8 @@ export function LeaguePage() {
           </>
         )}
       </div>
+
+      {refreshError && <p className="form-error">{refreshError}</p>}
 
       {wakeAllError && <p className="form-error">{wakeAllError}</p>}
 
@@ -229,7 +300,7 @@ export function LeaguePage() {
           </div>
 
           {topTab === "positions" && scoreboard && (
-            <div className="table-wrap">
+            <div className="table-wrap stack-mobile">
               <table className="table">
                 <thead>
                   <tr>
@@ -250,13 +321,13 @@ export function LeaguePage() {
                           className={c.id === selectedId ? "league-row-active" : undefined}
                           style={{ cursor: "pointer" }}
                         >
-                          <td>
+                          <td data-label="Competitor">
                             {c.name} <span className={`tag ${c.kind === "ai" ? "tag-outline" : "tag-accent"}`}>{c.kind === "ai" ? "AI" : "YOU"}</span>
                           </td>
-                          <td>{formatUsd(Number(c.account_value))}</td>
-                          <td>{formatPercent(Number(c.total_return_pct))}</td>
-                          <td>{formatPercent(Number(c.max_drawdown_pct))}</td>
-                          <td onClick={(e) => e.stopPropagation()}>
+                          <td data-label="Account value">{formatUsd(Number(c.account_value))}</td>
+                          <td data-label="Total return">{formatPercent(Number(c.total_return_pct))}</td>
+                          <td data-label="Max drawdown">{formatPercent(Number(c.max_drawdown_pct))}</td>
+                          <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                             <Link to={`/league/competitors/${c.id}`} className="btn btn-secondary">
                               Dashboard
                             </Link>
@@ -325,7 +396,7 @@ export function LeaguePage() {
               {tradesLoading && !trades && <p className="text-muted">Loading trades…</p>}
               {trades && trades.length === 0 && <p className="text-muted">No trades in this range.</p>}
               {trades && trades.length > 0 && (
-                <div className="table-wrap">
+                <div className="table-wrap stack-mobile">
                   <table className="table">
                     <thead>
                       <tr>
@@ -342,24 +413,24 @@ export function LeaguePage() {
                     <tbody>
                       {trades.map((t) => (
                         <tr key={t.id}>
-                          <td>{formatDateTime(t.created_at)}</td>
-                          <td>
+                          <td data-label="When">{formatDateTime(t.created_at)}</td>
+                          <td data-label="Competitor">
                             {t.competitor_name}{" "}
                             <span className={`tag ${t.competitor_kind === "ai" ? "tag-outline" : "tag-accent"}`}>
                               {t.competitor_kind === "ai" ? "AI" : "YOU"}
                             </span>
                           </td>
-                          <td>{t.side}</td>
-                          <td>
+                          <td data-label="Side">{t.side}</td>
+                          <td data-label="Ticker">
                             {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
                           </td>
-                          <td>{t.quantity}</td>
-                          <td>{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
-                          <td>
+                          <td data-label="Qty">{t.quantity}</td>
+                          <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
+                          <td data-label="Status">
                             <span className={`tag ${t.status === "filled" ? "tag-accent" : "tag-neutral"}`}>{t.status}</span>
                             {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
                           </td>
-                          <td>{t.thesis}</td>
+                          <td data-label="Thesis">{t.thesis}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -503,7 +574,7 @@ function CompetitorPanel({
       </div>
 
       {tab === "positions" && (
-        <div className="table-wrap">
+        <div className="table-wrap stack-mobile">
           {!detail && <p className="text-muted">Loading…</p>}
           {detail && detail.positions.length === 0 && <p className="text-muted">No open positions.</p>}
           {detail && (
@@ -520,8 +591,8 @@ function CompetitorPanel({
               </thead>
               <tbody>
                 <tr>
-                  <td>SPAXX (CASH)</td>
-                  <td>{formatUsd(Number(detail.cash_balance))}</td>
+                  <td data-label="Ticker">SPAXX (CASH)</td>
+                  <td data-label="Value">{formatUsd(Number(detail.cash_balance))}</td>
                   <td colSpan={3} className="text-muted">
                     Cash
                   </td>
@@ -529,16 +600,16 @@ function CompetitorPanel({
                 </tr>
                 {detail.positions.map((p, i) => (
                   <tr key={i}>
-                    <td>{p.ticker}</td>
-                    <td>{formatUsd(Number(p.current_value))}</td>
-                    <td>
+                    <td data-label="Ticker">{p.ticker}</td>
+                    <td data-label="Value">{formatUsd(Number(p.current_value))}</td>
+                    <td data-label="Instrument">
                       {p.instrument_type}
                       {p.strike && ` $${p.strike} exp ${p.expiration}`}
                       {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
                     </td>
-                    <td>{p.quantity}</td>
-                    <td>{formatPrice(Number(p.avg_cost))}</td>
-                    <td>{formatDateTime(p.opened_at)}</td>
+                    <td data-label="Qty">{p.quantity}</td>
+                    <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
+                    <td data-label="Opened">{formatDateTime(p.opened_at)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -548,7 +619,7 @@ function CompetitorPanel({
       )}
 
       {tab === "trades" && (
-        <div className="table-wrap">
+        <div className="table-wrap stack-mobile">
           {!trades && <p className="text-muted">Loading…</p>}
           {trades && trades.length === 0 && <p className="text-muted">No trades yet.</p>}
           {trades && trades.length > 0 && (
@@ -567,18 +638,18 @@ function CompetitorPanel({
               <tbody>
                 {trades.map((t) => (
                   <tr key={t.id}>
-                    <td>{formatDateTime(t.created_at)}</td>
-                    <td>{t.side}</td>
-                    <td>
+                    <td data-label="When">{formatDateTime(t.created_at)}</td>
+                    <td data-label="Side">{t.side}</td>
+                    <td data-label="Ticker">
                       {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
                     </td>
-                    <td>{t.quantity}</td>
-                    <td>{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
-                    <td>
+                    <td data-label="Qty">{t.quantity}</td>
+                    <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
+                    <td data-label="Status">
                       <span className={`tag ${t.status === "filled" ? "tag-accent" : "tag-neutral"}`}>{t.status}</span>
                       {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
                     </td>
-                    <td>{t.thesis}</td>
+                    <td data-label="Thesis">{t.thesis}</td>
                   </tr>
                 ))}
               </tbody>
@@ -598,7 +669,7 @@ function CompetitorPanel({
           {!turns && <p className="text-muted">Loading turns…</p>}
           {turns && turns.length === 0 && <p className="text-muted">No wake-ups yet.</p>}
           {turns && turns.length > 0 && (
-            <div className="table-wrap">
+            <div className="table-wrap stack-mobile">
               <table className="table">
                 <thead>
                   <tr>
@@ -611,10 +682,10 @@ function CompetitorPanel({
                 <tbody>
                   {turns.map((t) => (
                     <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => setOpenTurnId(t.id)}>
-                      <td>{formatDateTime(t.created_at)}</td>
-                      <td>{TURN_TRIGGER_LABELS[t.trigger]}</td>
-                      <td>{t.tool_calls.length > 0 ? t.tool_calls.join(", ") : "—"}</td>
-                      <td>${t.cost_usd}</td>
+                      <td data-label="When">{formatDateTime(t.created_at)}</td>
+                      <td data-label="Trigger">{TURN_TRIGGER_LABELS[t.trigger]}</td>
+                      <td data-label="Tools used">{t.tool_calls.length > 0 ? t.tool_calls.join(", ") : "—"}</td>
+                      <td data-label="Cost">${t.cost_usd}</td>
                     </tr>
                   ))}
                 </tbody>

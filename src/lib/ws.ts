@@ -135,24 +135,40 @@ class RealtimeConnection {
 /** Singleton — one connection for the whole app, matching "one socket, one user." */
 export const realtime = new RealtimeConnection();
 
-/** One connection to a single competition's trade feed (ws/league/<id>/) --
+export interface LeagueFeedMessage {
+  type: string;
+  [key: string]: unknown;
+}
+
+type LeagueFeedHandler = (message: LeagueFeedMessage) => void;
+
+/** One connection to a single competition's live feed (ws/league/<id>/) --
  *  a distinct backend endpoint from /ws/user/, so it can't reuse the
  *  `realtime` singleton above. Scoped to whichever component opens it
  *  (instantiate on mount, `close()` on unmount) rather than living for the
  *  whole session. Same stale-token (4001) refresh-and-retry behavior as
- *  `realtime`, minus the multi-type handler map since there's only one
- *  event ("league.trade") to listen for. */
+ *  `realtime`. Unlike /ws/user/, events here are unwrapped -- `type` is the
+ *  event name directly ("league.trade", "league.competitor_refreshed",
+ *  "league.scoreboard_refreshed") -- and nothing is redelivered on
+ *  reconnect (docs/league-api.md's "Live competition feed" table), so a
+ *  page relying on this for anything but a live nudge should reconcile
+ *  against a REST GET too. */
 export class LeagueFeedSocket {
   private socket: WebSocket | null = null;
+  private handlers = new Map<string, Set<LeagueFeedHandler>>();
   private reconnectAttempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private shouldRun = true;
 
-  constructor(
-    private competitionId: number,
-    private onTrade: (trade: Record<string, unknown>) => void,
-  ) {
+  constructor(private competitionId: number) {
     this.open();
+  }
+
+  /** Subscribe to one event type (e.g. "league.trade"). Returns an unsubscribe fn. */
+  on(type: string, handler: LeagueFeedHandler): () => void {
+    if (!this.handlers.has(type)) this.handlers.set(type, new Set());
+    this.handlers.get(type)!.add(handler);
+    return () => this.handlers.get(type)?.delete(handler);
   }
 
   close(): void {
@@ -181,13 +197,14 @@ export class LeagueFeedSocket {
     };
 
     socket.onmessage = (event) => {
-      let message: Record<string, unknown>;
+      let message: LeagueFeedMessage;
       try {
         message = JSON.parse(event.data);
       } catch {
         return;
       }
-      if (message.type === "league.trade") this.onTrade(message);
+      if (!message.type) return;
+      this.handlers.get(message.type)?.forEach((handler) => handler(message));
     };
 
     socket.onclose = (event) => {

@@ -6,7 +6,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { realtime } from "../lib/ws";
+import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import { formatDateTime, formatPercent, formatPrice, formatUsd } from "../lib/format";
 import { TradeModal } from "../components/TradeModal";
@@ -18,6 +18,7 @@ import {
   getScoreboard,
   getScratchpad,
   listCompetitions,
+  listCompetitionTrades,
   listCompetitors,
   listModels,
   listTrades,
@@ -25,7 +26,9 @@ import {
   triggerWakeup,
   TURN_TRIGGER_LABELS,
   type Competition,
+  type CompetitionTrade,
   type CompetitorDetail,
+  type CompetitorKind,
   type CompetitorSummary,
   type LeagueModel,
   type NextWakeups,
@@ -54,6 +57,14 @@ export function LeaguePage() {
   const [wakingAll, setWakingAll] = useState(false);
   const [wakeAllError, setWakeAllError] = useState<string | null>(null);
   const [models, setModels] = useState<LeagueModel[]>([]);
+
+  const [topTab, setTopTab] = useState<"positions" | "trades">("positions");
+  const [trades, setTrades] = useState<CompetitionTrade[] | null>(null);
+  const [tradesError, setTradesError] = useState<string | null>(null);
+  const [tradesLoading, setTradesLoading] = useState(false);
+  const [sinceFilter, setSinceFilter] = useState("");
+  const [untilFilter, setUntilFilter] = useState("");
+  const [kindFilter, setKindFilter] = useState<CompetitorKind | "">("");
 
   const loadCompetitionData = async (competitionId: number) => {
     const [board, list] = await Promise.all([getScoreboard(competitionId), listCompetitors(competitionId)]);
@@ -99,6 +110,48 @@ export function LeaguePage() {
       setRefreshSignal((k) => k + 1);
     });
   }, [competition]);
+
+  // Lazy: only hit the trades endpoint once the Trades tab is actually
+  // opened, and again whenever a filter changes -- avoids adding a request
+  // to the already-slow initial page load for a tab most visits won't use.
+  useEffect(() => {
+    if (!competition || topTab !== "trades") return;
+    let cancelled = false;
+    setTradesLoading(true);
+    setTradesError(null);
+    listCompetitionTrades(competition.id, {
+      since: sinceFilter || undefined,
+      until: untilFilter || undefined,
+      competitorKind: kindFilter || undefined,
+    })
+      .then((rows) => !cancelled && setTrades(rows))
+      .catch((err) => {
+        if (!cancelled) setTradesError(extractGenericMessage(err, "Couldn't load trades."));
+      })
+      .finally(() => {
+        if (!cancelled) setTradesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [competition, topTab, sinceFilter, untilFilter, kindFilter]);
+
+  // Live feed connects as soon as the competition is known, independent of
+  // which tab is active, so trades already loaded stay current even while
+  // looking at Positions. Only prepends once the Trades tab has actually
+  // fetched a base list (trades !== null) -- until then a live push adds
+  // nothing, since opening the tab will pull it fresh from the REST call
+  // above anyway. Respects the kind filter so a filtered view doesn't grow
+  // rows that don't match it; since/until aren't re-checked because a push
+  // always represents "now", which satisfies any realistic date range.
+  useEffect(() => {
+    if (!competition) return;
+    const socket = new LeagueFeedSocket(competition.id, (msg) => {
+      if (kindFilter && msg.competitor_kind !== kindFilter) return;
+      setTrades((prev) => (prev ? [msg as unknown as CompetitionTrade, ...prev] : prev));
+    });
+    return () => socket.close();
+  }, [competition, kindFilter]);
 
   const handleJoined = (competitor: CompetitorSummary) => {
     setCompetitors((prev) => [...prev, competitor]);
@@ -164,7 +217,18 @@ export function LeaguePage() {
             index funds ({competition.index_tickers.join(", ")})
           </p>
 
-          {scoreboard && (
+          <div className="seg" role="tablist" aria-label="League view">
+            <label className="seg-opt">
+              <input type="radio" name="league-top-tab" checked={topTab === "positions"} onChange={() => setTopTab("positions")} />
+              Positions
+            </label>
+            <label className="seg-opt">
+              <input type="radio" name="league-top-tab" checked={topTab === "trades"} onChange={() => setTopTab("trades")} />
+              Trades
+            </label>
+          </div>
+
+          {topTab === "positions" && scoreboard && (
             <div className="table-wrap">
               <table className="table">
                 <thead>
@@ -216,6 +280,92 @@ export function LeaguePage() {
                   })}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {topTab === "trades" && (
+            <div className="stack">
+              <div className="screener-search">
+                <div className="field">
+                  <label htmlFor="trades-since">Since</label>
+                  <input
+                    id="trades-since"
+                    type="date"
+                    className="input"
+                    value={sinceFilter}
+                    onChange={(e) => setSinceFilter(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="trades-until">Until</label>
+                  <input
+                    id="trades-until"
+                    type="date"
+                    className="input"
+                    value={untilFilter}
+                    onChange={(e) => setUntilFilter(e.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="trades-kind">Competitor</label>
+                  <select
+                    id="trades-kind"
+                    className="input"
+                    value={kindFilter}
+                    onChange={(e) => setKindFilter(e.target.value as CompetitorKind | "")}
+                  >
+                    <option value="">All</option>
+                    <option value="ai">AI</option>
+                    <option value="human">Human</option>
+                  </select>
+                </div>
+              </div>
+
+              {tradesError && <p className="form-error">{tradesError}</p>}
+              {tradesLoading && !trades && <p className="text-muted">Loading trades…</p>}
+              {trades && trades.length === 0 && <p className="text-muted">No trades in this range.</p>}
+              {trades && trades.length > 0 && (
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>When</th>
+                        <th>Competitor</th>
+                        <th>Side</th>
+                        <th>Ticker</th>
+                        <th>Qty</th>
+                        <th>Fill</th>
+                        <th>Status</th>
+                        <th>Thesis</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {trades.map((t) => (
+                        <tr key={t.id}>
+                          <td>{formatDateTime(t.created_at)}</td>
+                          <td>
+                            {t.competitor_name}{" "}
+                            <span className={`tag ${t.competitor_kind === "ai" ? "tag-outline" : "tag-accent"}`}>
+                              {t.competitor_kind === "ai" ? "AI" : "YOU"}
+                            </span>
+                          </td>
+                          <td>{t.side}</td>
+                          <td>
+                            {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
+                          </td>
+                          <td>{t.quantity}</td>
+                          <td>{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
+                          <td>
+                            <span className={`tag ${t.status === "filled" ? "tag-accent" : "tag-neutral"}`}>{t.status}</span>
+                            {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
+                          </td>
+                          <td>{t.thesis}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 

@@ -109,6 +109,15 @@ export interface Trade {
   created_at: string;
 }
 
+/** A trade row from the competition-wide feed (GET .../trades/), which is
+ *  every competitor's trades merged together -- same fields as `Trade` plus
+ *  who made it, since the per-competitor endpoint doesn't need to say. */
+export interface CompetitionTrade extends Trade {
+  competitor_id: number;
+  competitor_name: string;
+  competitor_kind: CompetitorKind;
+}
+
 export interface NewTrade {
   ticker: string;
   side: TradeSide;
@@ -241,6 +250,26 @@ export async function getCompetitor(competitorId: number): Promise<CompetitorDet
 export async function listTrades(competitorId: number): Promise<Trade[]> {
   const res = await apiFetch(`/league/competitors/${competitorId}/trades/`);
   return parseJsonOrThrow<Trade[]>(res);
+}
+
+export interface ListCompetitionTradesParams {
+  /** YYYY-MM-DD or full ISO datetime -- bare dates anchor to the ET trading day. */
+  since?: string;
+  until?: string;
+  competitorKind?: CompetitorKind;
+}
+
+export async function listCompetitionTrades(
+  competitionId: number,
+  params: ListCompetitionTradesParams = {},
+): Promise<CompetitionTrade[]> {
+  const qs = new URLSearchParams();
+  if (params.since) qs.set("since", params.since);
+  if (params.until) qs.set("until", params.until);
+  if (params.competitorKind) qs.set("competitor_kind", params.competitorKind);
+  const query = qs.toString();
+  const res = await apiFetch(`/league/competitions/${competitionId}/trades/${query ? `?${query}` : ""}`);
+  return parseJsonOrThrow<CompetitionTrade[]>(res);
 }
 
 /** Both a fill (201) and a rules-engine rejection (400) return the same

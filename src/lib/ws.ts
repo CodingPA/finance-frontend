@@ -134,3 +134,97 @@ class RealtimeConnection {
 
 /** Singleton — one connection for the whole app, matching "one socket, one user." */
 export const realtime = new RealtimeConnection();
+
+/** One connection to a single competition's trade feed (ws/league/<id>/) --
+ *  a distinct backend endpoint from /ws/user/, so it can't reuse the
+ *  `realtime` singleton above. Scoped to whichever component opens it
+ *  (instantiate on mount, `close()` on unmount) rather than living for the
+ *  whole session. Same stale-token (4001) refresh-and-retry behavior as
+ *  `realtime`, minus the multi-type handler map since there's only one
+ *  event ("league.trade") to listen for. */
+export class LeagueFeedSocket {
+  private socket: WebSocket | null = null;
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private shouldRun = true;
+
+  constructor(
+    private competitionId: number,
+    private onTrade: (trade: Record<string, unknown>) => void,
+  ) {
+    this.open();
+  }
+
+  close(): void {
+    this.shouldRun = false;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.socket?.close();
+    this.socket = null;
+  }
+
+  private open(): void {
+    const token = getAccessToken();
+    if (!token) {
+      this.scheduleReconnect();
+      return;
+    }
+
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${protocol}//${window.location.host}/ws/league/${this.competitionId}/?token=${encodeURIComponent(token)}`;
+
+    const socket = new WebSocket(url);
+    this.socket = socket;
+
+    socket.onopen = () => {
+      this.reconnectAttempt = 0;
+    };
+
+    socket.onmessage = (event) => {
+      let message: Record<string, unknown>;
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        return;
+      }
+      if (message.type === "league.trade") this.onTrade(message);
+    };
+
+    socket.onclose = (event) => {
+      if (this.socket !== socket) return; // a newer socket has already replaced this one
+      this.socket = null;
+      if (!this.shouldRun) return;
+
+      if (event.code === STALE_TOKEN_CLOSE_CODE) {
+        this.refreshThenReconnect();
+      } else {
+        this.scheduleReconnect();
+      }
+    };
+
+    socket.onerror = () => {
+      socket.close();
+    };
+  }
+
+  private async refreshThenReconnect(): Promise<void> {
+    const refreshed = await refreshAccessToken().catch(() => false);
+    if (!this.shouldRun) return;
+    if (refreshed) {
+      this.reconnectAttempt = 0;
+      this.open();
+    } else {
+      this.scheduleReconnect();
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.shouldRun || this.reconnectTimer) return;
+    const delay = Math.min(1000 * 2 ** this.reconnectAttempt, MAX_RECONNECT_DELAY_MS);
+    this.reconnectAttempt += 1;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.open();
+    }, delay);
+  }
+}

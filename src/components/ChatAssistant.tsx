@@ -10,10 +10,9 @@
 // action's id comes from a different table and isn't safe to key alongside
 // message ids.
 
-import { useEffect, useRef, useState, type ComponentPropsWithoutRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { Markdown } from "./Markdown";
 import { useAuth } from "../context/AuthContext";
 import { ApiError } from "../lib/api";
 import { realtime } from "../lib/ws";
@@ -65,18 +64,6 @@ function tickerFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/screen\/([^/]+)/);
   return match ? decodeURIComponent(match[1]) : null;
 }
-
-// Assistant replies render as markdown (tables, lists, etc. via remark-gfm);
-// wide tables get their own scroll container instead of blowing out the
-// narrow drawer, and links open in a new tab instead of navigating the app.
-const markdownComponents = {
-  table: (props: ComponentPropsWithoutRef<"table">) => (
-    <div className="chat-table-wrap">
-      <table {...props} />
-    </div>
-  ),
-  a: (props: ComponentPropsWithoutRef<"a">) => <a {...props} target="_blank" rel="noopener noreferrer" />,
-};
 
 export function ChatAssistant() {
   const { status } = useAuth();
@@ -479,14 +466,8 @@ export function ChatAssistant() {
                       <span className="tag tag-accent">{item.ticker}</span>
                     </div>
                   )}
-                  <div className={`chat-msg-text${item.error ? " chat-msg-error" : ""}`}>
-                    {item.role === "assistant" ? (
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
-                        {item.text || (item.streaming ? "…" : "")}
-                      </ReactMarkdown>
-                    ) : (
-                      item.text
-                    )}
+                  <div className={`chat-msg-text${item.role === "assistant" ? " markdown-body" : ""}${item.error ? " chat-msg-error" : ""}`}>
+                    {item.role === "assistant" ? <Markdown>{item.text || (item.streaming ? "…" : "")}</Markdown> : item.text}
                   </div>
                   {item.role === "assistant" && !item.streaming && !item.error && item.modelId && (
                     <div className="chat-msg-usage info-tip text-muted" tabIndex={0}>

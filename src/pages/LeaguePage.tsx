@@ -9,6 +9,7 @@ import { Link } from "react-router-dom";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatUsd } from "../lib/format";
+import { Markdown } from "../components/Markdown";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import { AddCompetitorModal } from "../components/AddCompetitorModal";
@@ -676,7 +677,13 @@ function CompetitorPanel({
         <div className="stack">
           <div className="card elev-sm">
             <div className="card-kicker">Current scratchpad</div>
-            <p className="card-body">{scratchpad?.content || "(nothing written yet)"}</p>
+            {scratchpad?.content ? (
+              <div className="card-body markdown-body">
+                <Markdown>{scratchpad.content}</Markdown>
+              </div>
+            ) : (
+              <p className="card-body">(nothing written yet)</p>
+            )}
             {scratchpad?.updated_at && <div className="card-meta">{formatDateTime(scratchpad.updated_at)}</div>}
           </div>
 

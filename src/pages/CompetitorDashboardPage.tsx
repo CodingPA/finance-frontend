@@ -11,6 +11,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatTime, formatUsd } from "../lib/format";
+import { Markdown } from "../components/Markdown";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import {
@@ -529,7 +530,13 @@ export function CompetitorDashboardPage() {
               {detail.kind === "ai" && (
                 <div className="card elev-sm stack">
                   <div className="card-title">Latest scratchpad</div>
-                  <p className="card-body">{scratchpad?.content || "(nothing written yet)"}</p>
+                  {scratchpad?.content ? (
+                    <div className="card-body markdown-body">
+                      <Markdown>{scratchpad.content}</Markdown>
+                    </div>
+                  ) : (
+                    <p className="card-body">(nothing written yet)</p>
+                  )}
                   {scratchpad?.updated_at && <div className="card-meta">{formatDateTime(scratchpad.updated_at)}</div>}
                   {turns && turns.length > 0 && (
                     <button type="button" className="btn btn-ghost" style={{ alignSelf: "flex-start", padding: 0 }} onClick={() => setOpenTurnId(turns[0].id)}>

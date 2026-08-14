@@ -7,7 +7,7 @@
 // here since neither replaces the other.
 
 import { Fragment, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatTime, formatUsd } from "../lib/format";
@@ -62,6 +62,7 @@ function formatShortDate(value: string | null | undefined): string {
 export function CompetitorDashboardPage() {
   const { id } = useParams();
   const competitorId = Number(id);
+  const navigate = useNavigate();
 
   const [detail, setDetail] = useState<CompetitorDetail | null>(null);
   const [trades, setTrades] = useState<Trade[] | null>(null);
@@ -231,6 +232,14 @@ export function CompetitorDashboardPage() {
   const rank = scoreboardIndex >= 0 ? scoreboardIndex + 1 : null;
   const maxDrawdownPct = scoreboardIndex >= 0 ? Number(scoreboard!.competitors[scoreboardIndex].max_drawdown_pct) : null;
 
+  // Step through the scoreboard's own order (best return first) rather than
+  // competitor id -- id order doesn't mean anything competitively.
+  const prevCompetitor = scoreboardIndex > 0 ? scoreboard!.competitors[scoreboardIndex - 1] : null;
+  const nextCompetitor =
+    scoreboardIndex >= 0 && scoreboardIndex < (scoreboard?.competitors.length ?? 0) - 1
+      ? scoreboard!.competitors[scoreboardIndex + 1]
+      : null;
+
   const accountValue = detail ? Number(detail.account_value) : 0;
   const cashBalance = detail ? Number(detail.cash_balance) : 0;
   const openRisk = accountValue - cashBalance;
@@ -269,25 +278,51 @@ export function CompetitorDashboardPage() {
               <h1 className="competitor-title">{detail.name}</h1>
               {detail.assistant_model && <p className="text-muted">{detail.assistant_model}</p>}
             </div>
-            <div className="competitor-hero-actions">
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleRefresh}
-                disabled={refreshing}
-                title="Force a live re-quote of this competitor's held tickers, right now"
-              >
-                {refreshing ? "Refreshing…" : "Refresh prices"}
-              </button>
-              {detail.kind === "human" && (
-                <button type="button" className="btn btn-primary" onClick={() => setTradeModalOpen(true)}>
-                  New trade
+            <div className="competitor-hero-right">
+              <div className="competitor-hero-actions">
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={handleRefresh}
+                  disabled={refreshing}
+                  title="Force a live re-quote of this competitor's held tickers, right now"
+                >
+                  {refreshing ? "Refreshing…" : "Refresh prices"}
                 </button>
-              )}
-              {detail.kind === "ai" && (
-                <button type="button" className="btn btn-primary" onClick={handleWakeUp} disabled={waking}>
-                  {waking ? "Waking…" : "Wake up now"}
-                </button>
+                {detail.kind === "human" && (
+                  <button type="button" className="btn btn-primary" onClick={() => setTradeModalOpen(true)}>
+                    New trade
+                  </button>
+                )}
+                {detail.kind === "ai" && (
+                  <button type="button" className="btn btn-primary" onClick={handleWakeUp} disabled={waking}>
+                    {waking ? "Waking…" : "Wake up now"}
+                  </button>
+                )}
+              </div>
+              {scoreboard && (
+                <div className="competitor-hero-nav">
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-icon"
+                    onClick={() => prevCompetitor && navigate(`/league/competitors/${prevCompetitor.id}`)}
+                    disabled={!prevCompetitor}
+                    aria-label="Previous competitor"
+                    title={prevCompetitor ? `Previous: ${prevCompetitor.name}` : undefined}
+                  >
+                    ‹
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-icon"
+                    onClick={() => nextCompetitor && navigate(`/league/competitors/${nextCompetitor.id}`)}
+                    disabled={!nextCompetitor}
+                    aria-label="Next competitor"
+                    title={nextCompetitor ? `Next: ${nextCompetitor.name}` : undefined}
+                  >
+                    ›
+                  </button>
+                </div>
               )}
             </div>
           </div>

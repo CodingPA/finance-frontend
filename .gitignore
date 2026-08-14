@@ -12,3 +12,4 @@ dist-ssr
 
 # Logs
 npm-debug.log*
+tsconfig.tsbuildinfo

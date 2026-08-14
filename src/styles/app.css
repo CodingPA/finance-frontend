@@ -529,6 +529,191 @@
   background: color-mix(in srgb, var(--color-accent) 8%, transparent);
 }
 
+.league-topline {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-1);
+}
+
+.league-day-badge {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+.league-topline-dates {
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.league-hero-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) 2fr;
+  gap: var(--space-4);
+  align-items: stretch;
+  margin: var(--space-4) 0;
+}
+
+@media (max-width: 768px) {
+  .league-hero-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.league-hero-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  background: var(--color-accent);
+  color: var(--color-bg);
+}
+
+.league-hero-tags {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.league-hero-leader-tag {
+  border-color: var(--color-bg);
+  color: var(--color-bg);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.league-hero-name {
+  font-size: 30px;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.league-hero-sub {
+  margin: 2px 0 0;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.league-hero-card .card-kicker {
+  color: var(--color-bg);
+  opacity: 0.75;
+}
+
+.league-hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.league-hero-figure {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 34px;
+  line-height: 1.1;
+}
+
+.league-hero-figure-sm {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.league-hero-chart-card {
+  min-height: 220px;
+}
+
+/* — equity chart (src/components/EquityChart.tsx) — */
+.equity-chart {
+  position: relative;
+}
+
+.equity-chart-empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+}
+
+.equity-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+  font-size: 12px;
+}
+
+.equity-chart-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.equity-chart-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.equity-chart-tooltip {
+  position: absolute;
+  top: 4px;
+  transform: translateX(-50%);
+  min-width: 140px;
+  padding: var(--space-2);
+  background: var(--color-text);
+  color: var(--color-bg);
+  font-size: 12px;
+  line-height: 1.5;
+  pointer-events: none;
+  z-index: 2;
+  box-shadow: var(--shadow-md);
+}
+
+.equity-chart-tooltip-time {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.75;
+  margin-bottom: 4px;
+}
+
+.equity-chart-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.equity-chart-tooltip-row strong {
+  margin-left: auto;
+}
+
+.league-leader-row {
+  background: color-mix(in srgb, var(--color-accent) 6%, transparent);
+}
+
+.league-you-row {
+  border-left: 3px solid var(--color-text);
+}
+
+.league-footer-strip {
+  margin-top: var(--space-4);
+}
+
 /* Drag-to-resize from the bottom-right corner -- native `resize`, no JS.
  * Overrides dialog-lg's fixed max-height/overflow-y so growth isn't capped. */
 .league-transcript-dialog {

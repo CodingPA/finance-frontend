@@ -14,6 +14,31 @@ export type TradeStatus = "filled" | "rejected";
 export type WakeupStatus = "scheduled" | "completed" | "failed";
 export type TurnTrigger = "scheduled_wakeup" | "manual" | "forced_checkin";
 
+// "" on a filled trade, or on a rejected trade predating this field
+// (docs/league-api.md: excluded from GET .../scoreboard/'s rejected_trades
+// breakdown rather than folded into a misleading bucket).
+export type RejectionCode =
+  | "price_limit"
+  | "position_cap"
+  | "index_cap"
+  | "insufficient_cash"
+  | "insufficient_holdings"
+  | "insufficient_collateral"
+  | "market_unavailable"
+  | "invalid_request"
+  | "";
+
+export const REJECTION_CODE_LABELS: Record<Exclude<RejectionCode, "">, string> = {
+  price_limit: "price limits",
+  position_cap: "position cap",
+  index_cap: "index cap",
+  insufficient_cash: "insufficient cash",
+  insufficient_holdings: "insufficient holdings",
+  insufficient_collateral: "insufficient collateral",
+  market_unavailable: "market unavailable",
+  invalid_request: "invalid requests",
+};
+
 export const TURN_TRIGGER_LABELS: Record<TurnTrigger, string> = {
   scheduled_wakeup: "Self-scheduled",
   manual: "Manual",
@@ -34,6 +59,9 @@ export interface Competition {
   competitor_count: number;
 }
 
+// filled_trades_count/api_cost_usd/last_woke_at: null/0 for a competitor
+// that's never filled a trade or woken -- always true for a human
+// competitor, and for an AI that hasn't run yet.
 export interface ScoreboardCompetitor {
   id: number;
   name: string;
@@ -42,11 +70,24 @@ export interface ScoreboardCompetitor {
   account_value: string;
   total_return_pct: string;
   max_drawdown_pct: string;
+  filled_trades_count: number;
+  api_cost_usd: string | null;
+  last_woke_at: string | null;
+}
+
+/** Competition-wide rejected-trade counts by rejection_code, most-common
+ *  first (docs/league-api.md) -- excludes trades rejected before
+ *  rejection_code existed rather than folding them into a misleading
+ *  bucket, so this undercounts a competition's full rejection history. */
+export interface RejectedTradesBreakdown {
+  reason: RejectionCode;
+  count: number;
 }
 
 export interface Scoreboard {
   competition: string;
   competitors: ScoreboardCompetitor[];
+  rejected_trades: RejectedTradesBreakdown[];
 }
 
 // AI-only fields (assistant_model/system_prompt) are absent entirely on a
@@ -58,6 +99,9 @@ export interface CompetitorSummary {
   cash_balance: string;
   account_value: string;
   total_return_pct: string;
+  filled_trades_count: number;
+  api_cost_usd: string | null;
+  last_woke_at: string | null;
   user_email?: string;
   assistant_model?: string;
   system_prompt?: string;
@@ -144,6 +188,7 @@ export interface Trade {
   thesis: string;
   status: TradeStatus;
   rejection_reason: string;
+  rejection_code: RejectionCode;
   created_at: string;
 }
 
@@ -425,4 +470,41 @@ export async function getTurn(competitorId: number, turnId: number): Promise<Tur
 export async function getScratchpad(competitorId: number): Promise<Scratchpad> {
   const res = await apiFetch(`/league/competitors/${competitorId}/scratchpad/`);
   return parseJsonOrThrow<Scratchpad>(res);
+}
+
+export interface EquityCurvePoint {
+  at: string;
+  account_value: string;
+}
+
+/** One entry per competitor in the competition, always -- a competitor
+ *  with no snapshots yet gets `points: []`, not an absent entry
+ *  (docs/league-api.md). Snapshots only run during market hours, so
+ *  there are gaps overnight/on weekends -- connect across them rather
+ *  than treating them as missing data. No historical backfill: a
+ *  competitor's series starts at whenever the snapshot job first ran
+ *  for them, not at competition start, so series can differ in length
+ *  and start time. */
+export interface EquityCurveSeries {
+  competitor_id: number;
+  name: string;
+  points: EquityCurvePoint[];
+}
+
+export interface EquityCurveParams {
+  /** YYYY-MM-DD or full ISO datetime, same semantics as listCompetitionTrades's. */
+  since?: string;
+  until?: string;
+}
+
+export async function getEquityCurve(
+  competitionId: number,
+  params: EquityCurveParams = {},
+): Promise<EquityCurveSeries[]> {
+  const qs = new URLSearchParams();
+  if (params.since) qs.set("since", params.since);
+  if (params.until) qs.set("until", params.until);
+  const query = qs.toString();
+  const res = await apiFetch(`/league/competitions/${competitionId}/equity-curve/${query ? `?${query}` : ""}`);
+  return parseJsonOrThrow<EquityCurveSeries[]>(res);
 }

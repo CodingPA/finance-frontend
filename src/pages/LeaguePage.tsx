@@ -4,17 +4,27 @@
 // picker and just loads the first one -- add a picker later if a second
 // competition ever gets created.
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
-import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatUsd } from "../lib/format";
+import {
+  formatDateTime,
+  formatPrice,
+  formatSignedPercent,
+  formatSignedUsd,
+  formatTime,
+  formatUsd,
+} from "../lib/format";
 import { Markdown } from "../components/Markdown";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import { AddCompetitorModal } from "../components/AddCompetitorModal";
+import { EquityChart, type EquityChartSeries } from "../components/EquityChart";
+import { Sparkline } from "../components/Sparkline";
 import {
   getCompetitor,
+  getEquityCurve,
   getNextWakeups,
   getScoreboard,
   getScratchpad,
@@ -28,12 +38,15 @@ import {
   positionPnl,
   refreshCompetition,
   triggerWakeup,
+  REJECTION_CODE_LABELS,
   TURN_TRIGGER_LABELS,
   type Competition,
   type CompetitionTrade,
   type CompetitorDetail,
   type CompetitorKind,
   type CompetitorSummary,
+  type EquityCurveSeries,
+  type ForcedCheckin,
   type LeagueModel,
   type NextWakeups,
   type Scoreboard,
@@ -41,6 +54,79 @@ import {
   type Trade,
   type TurnSummary,
 } from "../lib/league";
+
+const LEADER_COLOR = "var(--color-accent)";
+const NOTABLE_COLOR = "var(--color-neutral-700)";
+const FLAT_COLOR = "var(--color-neutral-400)";
+
+// A competitor whose account value never strayed more than 1% from
+// starting capital reads as "flat" for chart purposes -- collapsed into one
+// grouped line so a handful of untouched accounts don't clutter the hero
+// chart with overlapping flat lines (mirrors the mockup's "Four flat
+// accounts" legend entry, which is a display grouping, not backend data).
+const FLAT_THRESHOLD_PCT = 0.01;
+
+function buildChartSeries(
+  scoreboardRows: Scoreboard["competitors"],
+  curve: EquityCurveSeries[] | null,
+  startingCapital: number,
+): EquityChartSeries[] {
+  if (scoreboardRows.length === 0) return [];
+  const curveById = new Map((curve ?? []).map((c) => [c.competitor_id, c]));
+  const leaderId = scoreboardRows[0].id;
+  const epsilon = startingCapital * FLAT_THRESHOLD_PCT;
+
+  const rows = scoreboardRows.map((c) => {
+    const points = (curveById.get(c.id)?.points ?? []).map((p) => ({ at: p.at, value: Number(p.account_value) }));
+    const values = points.map((p) => p.value).concat(startingCapital);
+    const range = Math.max(...values) - Math.min(...values);
+    return { id: c.id, name: c.name, points, flat: range <= epsilon };
+  });
+
+  const leader = rows.find((r) => r.id === leaderId);
+  const rest = rows.filter((r) => r.id !== leaderId);
+  const notable = rest.filter((r) => !r.flat);
+  const flat = rest.filter((r) => r.flat);
+
+  const out: EquityChartSeries[] = [];
+  if (leader) out.push({ id: `c-${leader.id}`, label: leader.name, color: LEADER_COLOR, points: leader.points, emphasized: true });
+  for (const r of notable) out.push({ id: `c-${r.id}`, label: r.name, color: NOTABLE_COLOR, points: r.points });
+  if (flat.length > 0) {
+    // Any one flat member's own points are representative -- by definition
+    // they're all within epsilon of starting capital throughout.
+    const rep = flat.reduce((best, r) => (r.points.length > best.points.length ? r : best), flat[0]);
+    out.push({
+      id: "flat-group",
+      label: `${flat.length} flat account${flat.length === 1 ? "" : "s"}`,
+      color: FLAT_COLOR,
+      points: rep.points,
+    });
+  }
+  return out;
+}
+
+function formatDateRange(startDate: string, endDate: string): string {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  const startStr = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const endStr = end.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return `${startStr} – ${endStr}`;
+}
+
+function rejectionLabel(code: string): string {
+  return REJECTION_CODE_LABELS[code as keyof typeof REJECTION_CODE_LABELS] ?? code;
+}
+
+function computeDayInfo(startDate: string, endDate: string): { dayNum: number; totalDays: number } {
+  const msPerDay = 86_400_000;
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const totalDays = Math.round((end.getTime() - start.getTime()) / msPerDay) + 1;
+  const rawDay = Math.round((today.getTime() - start.getTime()) / msPerDay) + 1;
+  return { dayNum: Math.min(Math.max(rawDay, 1), totalDays), totalDays };
+}
 
 // A refresh() POST only confirms the job was queued -- if the
 // league.scoreboard_refreshed push doesn't land within this window (socket
@@ -67,6 +153,8 @@ export function LeaguePage() {
   const [wakingAll, setWakingAll] = useState(false);
   const [wakeAllError, setWakeAllError] = useState<string | null>(null);
   const [models, setModels] = useState<LeagueModel[]>([]);
+  const [equityCurve, setEquityCurve] = useState<EquityCurveSeries[] | null>(null);
+  const [nextForcedCheckin, setNextForcedCheckin] = useState<ForcedCheckin | null>(null);
 
   const [topTab, setTopTab] = useState<"positions" | "trades">("positions");
   const [trades, setTrades] = useState<CompetitionTrade[] | null>(null);
@@ -87,9 +175,14 @@ export function LeaguePage() {
   }, [kindFilter]);
 
   const loadCompetitionData = async (competitionId: number) => {
-    const [board, list] = await Promise.all([getScoreboard(competitionId), listCompetitors(competitionId)]);
+    const [board, list, curve] = await Promise.all([
+      getScoreboard(competitionId),
+      listCompetitors(competitionId),
+      getEquityCurve(competitionId),
+    ]);
     setScoreboard(board);
     setCompetitors(list);
+    setEquityCurve(curve);
   };
 
   useEffect(() => {
@@ -117,6 +210,22 @@ export function LeaguePage() {
       .then(setModels)
       .catch(() => {});
   }, []);
+
+  // Forced check-in slots are the same 3-daily-floor rows for every
+  // competitor in a competition (docs/league-api.md), so the first AI
+  // competitor's own next-wakeups view is enough to drive the
+  // competition-wide "next forced check-in" footer stat.
+  const firstAiCompetitorId = competitors.find((c) => c.kind === "ai")?.id ?? null;
+  useEffect(() => {
+    if (!firstAiCompetitorId) return;
+    let cancelled = false;
+    getNextWakeups(firstAiCompetitorId)
+      .then((w) => !cancelled && setNextForcedCheckin(w.forced_checkins[0] ?? null))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [firstAiCompetitorId]);
 
   // league.trade_activity / league.wakeup_complete / league.wakeup_failed all
   // arrive as generic notification.new pushes -- refresh the scoreboard and
@@ -242,8 +351,56 @@ export function LeaguePage() {
   const hasHumanCompetitor = competitors.some((c) => c.kind === "human");
   const aiCompetitorCount = competitors.filter((c) => c.kind === "ai").length;
 
+  const startingCapital = competition ? Number(competition.starting_capital) : 0;
+  const dayInfo = competition ? computeDayInfo(competition.start_date, competition.end_date) : null;
+
+  const chartSeries = useMemo(
+    () => (scoreboard ? buildChartSeries(scoreboard.competitors, equityCurve, startingCapital) : []),
+    [scoreboard, equityCurve, startingCapital],
+  );
+
+  const curveById = useMemo(() => {
+    const map = new Map<number, EquityCurveSeries>();
+    for (const s of equityCurve ?? []) map.set(s.competitor_id, s);
+    return map;
+  }, [equityCurve]);
+
+  const chartRangeLabel = useMemo(() => {
+    const times = (equityCurve ?? [])
+      .flatMap((s) => s.points.map((p) => new Date(p.at).getTime()))
+      .filter((t) => !Number.isNaN(t));
+    if (times.length === 0) return null;
+    const fmt = (t: number) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return `${fmt(Math.min(...times))} – ${fmt(Math.max(...times))}`;
+  }, [equityCurve]);
+
+  const leaderRow = scoreboard?.competitors[0] ?? null;
+  const leaderModel = leaderRow ? competitors.find((c) => c.id === leaderRow.id)?.assistant_model : undefined;
+  const secondRow = scoreboard?.competitors[1] ?? null;
+  const leadOverSecondPts =
+    leaderRow && secondRow ? (Number(leaderRow.total_return_pct) - Number(secondRow.total_return_pct)) * 100 : null;
+
+  const totalValue = scoreboard ? scoreboard.competitors.reduce((sum, c) => sum + Number(c.account_value), 0) : 0;
+  const deployed = competitors.length * startingCapital;
+  const totalFilledTrades = scoreboard ? scoreboard.competitors.reduce((sum, c) => sum + c.filled_trades_count, 0) : 0;
+  const totalApiCost = scoreboard ? scoreboard.competitors.reduce((sum, c) => sum + Number(c.api_cost_usd ?? 0), 0) : 0;
+  const totalReturnPoints = scoreboard
+    ? scoreboard.competitors.reduce((sum, c) => sum + Number(c.total_return_pct) * 100, 0)
+    : 0;
+  const costPerPoint = totalReturnPoints !== 0 ? totalApiCost / totalReturnPoints : null;
+  const topRejection = scoreboard?.rejected_trades[0] ?? null;
+
   return (
     <div className="page">
+      {competition && dayInfo && (
+        <div className="league-topline">
+          <span className="league-day-badge">
+            Day {dayInfo.dayNum} of {dayInfo.totalDays}
+          </span>
+          <span className="text-muted league-topline-dates">{formatDateRange(competition.start_date, competition.end_date)}</span>
+        </div>
+      )}
+
       <div className="page-head">
         <h2>Paper Trading League</h2>
         {competition && (
@@ -286,10 +443,51 @@ export function LeaguePage() {
       {competition && (
         <>
           <p className="text-muted">
-            {competition.name} · {competition.start_date} – {competition.end_date} · ${competition.starting_capital} starting
-            capital · max {formatPercent(Number(competition.max_position_pct))} per position, {formatPercent(Number(competition.max_index_pct))} in
-            index funds ({competition.index_tickers.join(", ")})
+            {competitors.length} operator{competitors.length === 1 ? "" : "s"}, one mandate each, {formatUsd(startingCapital)} of
+            simulated capital. Every trade carries a written thesis. Nothing here is real money.
           </p>
+
+          {scoreboard && leaderRow && (
+            <div className="league-hero-grid">
+              <div className="league-hero-card">
+                <div className="league-hero-tags">
+                  <span className="tag tag-outline league-hero-leader-tag">Leader · Rank 01</span>
+                </div>
+                <h3 className="league-hero-name">{leaderRow.name}</h3>
+                {leaderModel && <p className="league-hero-sub">{leaderModel}</p>}
+                <div className="league-hero-stats">
+                  <div>
+                    <div className="card-kicker">Total return</div>
+                    <div className="league-hero-figure">{formatSignedPercent(Number(leaderRow.total_return_pct))}</div>
+                  </div>
+                  <div>
+                    <div className="card-kicker">Account value</div>
+                    <div className="league-hero-figure-sm">{formatUsd(Number(leaderRow.account_value))}</div>
+                  </div>
+                  {leadOverSecondPts !== null && (
+                    <div>
+                      <div className="card-kicker">Lead over 2nd</div>
+                      <div className="league-hero-figure-sm">
+                        {leadOverSecondPts > 0 ? "+" : ""}
+                        {leadOverSecondPts.toFixed(1)} pts
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="card elev-sm league-hero-chart-card">
+                <div className="page-head" style={{ marginBottom: 0 }}>
+                  <span className="card-kicker">Equity curves</span>
+                  {chartRangeLabel && (
+                    <span className="text-muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+                      {chartRangeLabel}
+                    </span>
+                  )}
+                </div>
+                <EquityChart series={chartSeries} baseline={startingCapital} />
+              </div>
+            </div>
+          )}
 
           <div className="seg" role="tablist" aria-label="League view">
             <label className="seg-opt">
@@ -307,29 +505,50 @@ export function LeaguePage() {
               <table className="table">
                 <thead>
                   <tr>
+                    <th>#</th>
                     <th>Competitor</th>
-                    <th>Account value</th>
-                    <th>Total return</th>
-                    <th>Max drawdown</th>
+                    <th>Curve</th>
+                    <th>Account</th>
+                    <th>Return</th>
+                    <th>Trades</th>
+                    <th>API cost</th>
+                    <th>Last woke</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {scoreboard.competitors.map((c) => {
+                  {scoreboard.competitors.map((c, i) => {
                     const summary = competitors.find((comp) => comp.id === c.id) ?? null;
+                    const rank = i + 1;
+                    const rowClasses = [
+                      c.id === selectedId ? "league-row-active" : "",
+                      rank === 1 ? "league-leader-row" : "",
+                      c.kind === "human" ? "league-you-row" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ");
                     return (
                       <Fragment key={c.id}>
                         <tr
                           onClick={() => setSelectedId((prev) => (prev === c.id ? null : c.id))}
-                          className={c.id === selectedId ? "league-row-active" : undefined}
+                          className={rowClasses || undefined}
                           style={{ cursor: "pointer" }}
                         >
+                          <td data-label="#">{String(rank).padStart(2, "0")}</td>
                           <td data-label="Competitor">
                             {c.name} <span className={`tag ${c.kind === "ai" ? "tag-outline" : "tag-accent"}`}>{c.kind === "ai" ? "AI" : "YOU"}</span>
                           </td>
-                          <td data-label="Account value">{formatUsd(Number(c.account_value))}</td>
-                          <td data-label="Total return">{formatPercent(Number(c.total_return_pct))}</td>
-                          <td data-label="Max drawdown">{formatPercent(Number(c.max_drawdown_pct))}</td>
+                          <td data-label="Curve">
+                            <Sparkline
+                              points={(curveById.get(c.id)?.points ?? []).map((p) => ({ at: p.at, value: Number(p.account_value) }))}
+                              color={rank === 1 ? LEADER_COLOR : NOTABLE_COLOR}
+                            />
+                          </td>
+                          <td data-label="Account">{formatUsd(Number(c.account_value))}</td>
+                          <td data-label="Return">{formatSignedPercent(Number(c.total_return_pct))}</td>
+                          <td data-label="Trades">{c.filled_trades_count}</td>
+                          <td data-label="API cost">{c.api_cost_usd !== null ? formatUsd(Number(c.api_cost_usd)) : "—"}</td>
+                          <td data-label="Last woke">{c.last_woke_at ? formatTime(c.last_woke_at) : "never"}</td>
                           <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                             <Link to={`/league/competitors/${c.id}`} className="btn btn-secondary">
                               Dashboard
@@ -338,7 +557,7 @@ export function LeaguePage() {
                         </tr>
                         {c.id === selectedId && summary && (
                           <tr>
-                            <td colSpan={5} className="league-expanded-cell">
+                            <td colSpan={9} className="league-expanded-cell">
                               <CompetitorPanel
                                 summary={summary}
                                 models={models}
@@ -440,6 +659,33 @@ export function LeaguePage() {
                   </table>
                 </div>
               )}
+            </div>
+          )}
+
+          {scoreboard && (
+            <div className="stat-strip league-footer-strip">
+              <div className="stat-strip-item">
+                <div className="card-kicker">League total value</div>
+                <div className="card-title">{formatUsd(totalValue)}</div>
+                <div className="card-meta">vs {formatUsd(deployed)} deployed</div>
+              </div>
+              <div className="stat-strip-item">
+                <div className="card-kicker">Trades filled</div>
+                <div className="card-title">{totalFilledTrades}</div>
+                <div className="card-meta">
+                  {topRejection ? `${topRejection.count} rejected on ${rejectionLabel(topRejection.reason)}` : "No trades rejected"}
+                </div>
+              </div>
+              <div className="stat-strip-item">
+                <div className="card-kicker">Spent on thinking</div>
+                <div className="card-title">{formatUsd(totalApiCost)}</div>
+                <div className="card-meta">{costPerPoint !== null ? `${formatUsd(costPerPoint)} per point of return` : "—"}</div>
+              </div>
+              <div className="stat-strip-item">
+                <div className="card-kicker">Next forced check-in</div>
+                <div className="card-title">{nextForcedCheckin ? formatTime(nextForcedCheckin.next_run_at) : "—"}</div>
+                <div className="card-meta">{nextForcedCheckin ? nextForcedCheckin.label : "no AI competitors yet"}</div>
+              </div>
             </div>
           )}
 

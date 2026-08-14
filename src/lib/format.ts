@@ -24,6 +24,14 @@ export function formatPercent(value: number | null | undefined): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
+/** Same as formatPercent, but prefixes a gain with "+" -- for a return
+ *  figure where the sign itself is the point (e.g. a scoreboard's total
+ *  return), not just a magnitude. */
+export function formatSignedPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return value > 0 ? `+${formatPercent(value)}` : formatPercent(value);
+}
+
 export function formatPrice(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return `$${value.toFixed(2)}`;

@@ -10,6 +10,15 @@ export function formatUsd(value: number | null | undefined): string {
   return `${sign}$${abs.toFixed(0)}`;
 }
 
+/** Same abbreviation rules as formatUsd, but prefixes a gain with "+" --
+ *  formatUsd already handles the "-" sign, so only the positive case needs
+ *  anything extra. For a P/L-style figure where the sign itself is the
+ *  point, not just a magnitude. */
+export function formatSignedUsd(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return value > 0 ? `+${formatUsd(value)}` : formatUsd(value);
+}
+
 export function formatPercent(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return `${(value * 100).toFixed(1)}%`;

@@ -93,6 +93,27 @@ export interface CompetitorDetail {
   positions: Position[];
 }
 
+/** Unrealized P/L for one open position, in dollars. avg_cost is per-share
+ *  (stock) or per-contract (options, the premium) -- multiply by
+ *  quantity * 100 for the total dollar cost/credit, same convention
+ *  docs/league-api.md uses. A long position's avg_cost was paid out (a
+ *  debit); a short leg's was received upfront (a credit) -- netting that in
+ *  with the opposite sign against current_value (already sign-aware: a
+ *  negative liability for a short leg) gives the right answer for both. */
+export function positionPnl(p: Position): number {
+  const multiplier = p.instrument_type === "stock" ? 1 : 100;
+  const costBasis = (p.is_short ? -1 : 1) * Number(p.avg_cost) * p.quantity * multiplier;
+  return Number(p.current_value) - costBasis;
+}
+
+/** CSS class for coloring a P/L-derived figure -- "" (no color) at exactly
+ *  breakeven. */
+export function pnlClass(pnl: number): string {
+  if (pnl > 0) return "pnl-positive";
+  if (pnl < 0) return "pnl-negative";
+  return "";
+}
+
 export interface Trade {
   id: number;
   side: TradeSide;

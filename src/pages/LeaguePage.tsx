@@ -8,7 +8,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
-import { formatDateTime, formatPercent, formatPrice, formatUsd } from "../lib/format";
+import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatUsd } from "../lib/format";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import { AddCompetitorModal } from "../components/AddCompetitorModal";
@@ -23,6 +23,8 @@ import {
   listModels,
   listTrades,
   listTurns,
+  pnlClass,
+  positionPnl,
   refreshCompetition,
   triggerWakeup,
   TURN_TRIGGER_LABELS,
@@ -583,8 +585,10 @@ function CompetitorPanel({
                 <tr>
                   <th>Ticker</th>
                   <th>Value</th>
+                  <th>P/L</th>
                   <th>Instrument</th>
                   <th>Qty</th>
+                  <th>Current price</th>
                   <th>Avg cost</th>
                   <th>Opened</th>
                 </tr>
@@ -593,25 +597,35 @@ function CompetitorPanel({
                 <tr>
                   <td data-label="Ticker">SPAXX (CASH)</td>
                   <td data-label="Value">{formatUsd(Number(detail.cash_balance))}</td>
-                  <td colSpan={3} className="text-muted">
+                  <td></td>
+                  <td colSpan={4} className="text-muted">
                     Cash
                   </td>
                   <td></td>
                 </tr>
-                {detail.positions.map((p, i) => (
-                  <tr key={i}>
-                    <td data-label="Ticker">{p.ticker}</td>
-                    <td data-label="Value">{formatUsd(Number(p.current_value))}</td>
-                    <td data-label="Instrument">
-                      {p.instrument_type}
-                      {p.strike && ` $${p.strike} exp ${p.expiration}`}
-                      {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
-                    </td>
-                    <td data-label="Qty">{p.quantity}</td>
-                    <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
-                    <td data-label="Opened">{formatDateTime(p.opened_at)}</td>
-                  </tr>
-                ))}
+                {detail.positions.map((p, i) => {
+                  const pnl = positionPnl(p);
+                  return (
+                    <tr key={i}>
+                      <td data-label="Ticker">{p.ticker}</td>
+                      <td data-label="Value">{formatUsd(Number(p.current_value))}</td>
+                      <td data-label="P/L" className={pnlClass(pnl)}>
+                        {formatSignedUsd(pnl)}
+                      </td>
+                      <td data-label="Instrument">
+                        {p.instrument_type}
+                        {p.strike && ` $${p.strike} exp ${p.expiration}`}
+                        {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
+                      </td>
+                      <td data-label="Qty">{p.quantity}</td>
+                      <td data-label="Current price" className={pnlClass(pnl)}>
+                        {formatPrice(Number(p.current_price))}
+                      </td>
+                      <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
+                      <td data-label="Opened">{formatDateTime(p.opened_at)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

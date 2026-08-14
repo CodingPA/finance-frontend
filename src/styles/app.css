@@ -83,6 +83,14 @@
   overflow-x: auto;
 }
 
+.pnl-positive {
+  color: var(--color-positive);
+}
+
+.pnl-negative {
+  color: var(--color-accent-700);
+}
+
 /* — info tooltips — */
 .info-tip {
   position: relative;

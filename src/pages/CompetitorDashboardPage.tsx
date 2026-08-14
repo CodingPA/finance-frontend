@@ -6,16 +6,17 @@
 // check-in, self-scheduled, or manual -- distinct concepts, both surfaced
 // here since neither replaces the other.
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
-import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatUsd } from "../lib/format";
+import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatTime, formatUsd } from "../lib/format";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import {
   getCompetitor,
   getNextWakeups,
+  getScoreboard,
   getScratchpad,
   listCompetitions,
   listModels,
@@ -29,6 +30,7 @@ import {
   type CompetitorDetail,
   type LeagueModel,
   type NextWakeups,
+  type Scoreboard,
   type Scratchpad,
   type Trade,
   type TurnSummary,
@@ -39,6 +41,23 @@ import {
 // down, Redis hiccup), fall back to a plain re-fetch instead of spinning
 // forever (docs/league-api.md's "Building the manual-refresh button").
 const REFRESH_FALLBACK_MS = 15_000;
+
+// Trades don't carry per-trade realized P/L or a close reason (target_price/
+// dead_price live on Position, not Trade -- they're revisable anytime, so a
+// Trade-level snapshot would go stale the moment a competitor moved a stop
+// on a position it already holds) -- this derives open/closed/rejected from
+// side + status instead of fabricating a dollar result.
+function tradeResultLabel(t: Trade): string {
+  if (t.status === "rejected") return "rejected";
+  return t.side === "sell" || t.side === "buy_to_close" ? "closed" : "open";
+}
+
+function formatShortDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
 
 export function CompetitorDashboardPage() {
   const { id } = useParams();
@@ -63,6 +82,13 @@ export function CompetitorDashboardPage() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // For the RANK badge and MAX DRAWDOWN stat -- CompetitorDetail has
+  // neither (drawdown is only on the scoreboard row; rank isn't a field at
+  // all, just this competitor's position in the scoreboard's sorted list).
+  const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
+  const [mandateExpanded, setMandateExpanded] = useState(false);
+  const [expandedTradeId, setExpandedTradeId] = useState<number | null>(null);
+
   useEffect(() => {
     listModels()
       .then(setModels)
@@ -77,6 +103,17 @@ export function CompetitorDashboardPage() {
       .then((all) => setCompetitionId(all[0]?.id ?? null))
       .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!competitionId) return;
+    let cancelled = false;
+    getScoreboard(competitionId)
+      .then((b) => !cancelled && setScoreboard(b))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [competitionId, refreshSignal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -190,6 +227,28 @@ export function CompetitorDashboardPage() {
 
   const provider = models.find((m) => m.model_id === detail?.assistant_model)?.provider ?? "anthropic";
 
+  const scoreboardIndex = scoreboard?.competitors.findIndex((c) => c.id === competitorId) ?? -1;
+  const rank = scoreboardIndex >= 0 ? scoreboardIndex + 1 : null;
+  const maxDrawdownPct = scoreboardIndex >= 0 ? Number(scoreboard!.competitors[scoreboardIndex].max_drawdown_pct) : null;
+
+  const accountValue = detail ? Number(detail.account_value) : 0;
+  const cashBalance = detail ? Number(detail.cash_balance) : 0;
+  const openRisk = accountValue - cashBalance;
+  const cashPctOfBook = accountValue > 0 ? cashBalance / accountValue : null;
+
+  // "3 positions, all 1DTE" -- only meaningful when every open option shares
+  // the same days-to-expiration; mixed expirations just show the count.
+  const optionDtes = Array.from(
+    new Set(
+      (detail?.positions ?? [])
+        .filter((p) => p.expiration)
+        .map((p) => Math.max(0, Math.ceil((new Date(p.expiration as string).getTime() - Date.now()) / 86_400_000))),
+    ),
+  );
+  const dteSummary = optionDtes.length === 1 ? `, all ${optionDtes[0]}DTE` : optionDtes.length > 1 ? ", mixed DTE" : "";
+
+  const apiCost = turns ? turns.reduce((sum, t) => sum + Number(t.cost_usd), 0) : null;
+
   return (
     <div className="page">
       <Link to="/league" className="text-muted">
@@ -201,159 +260,268 @@ export function CompetitorDashboardPage() {
 
       {detail && (
         <>
-          <div className="page-head">
-            <h2>{detail.name}</h2>
-            <span className={`tag ${detail.kind === "ai" ? "tag-outline" : "tag-accent"}`}>{detail.kind === "ai" ? "AI" : "YOU"}</span>
-            {detail.assistant_model && <span className="tag tag-neutral">{detail.assistant_model}</span>}
-            <button
-              type="button"
-              className="btn btn-secondary"
-              style={{ marginLeft: "auto" }}
-              onClick={handleRefresh}
-              disabled={refreshing}
-              title="Force a live re-quote of this competitor's held tickers, right now"
-            >
-              {refreshing ? "Refreshing…" : "Refresh prices"}
-            </button>
-            {detail.kind === "human" && (
-              <button type="button" className="btn btn-primary" onClick={() => setTradeModalOpen(true)}>
-                New trade
-              </button>
-            )}
-            {detail.kind === "ai" && (
-              <button type="button" className="btn btn-secondary" onClick={handleWakeUp} disabled={waking}>
-                {waking ? "Waking…" : "Wake up now"}
-              </button>
-            )}
-          </div>
-
-          {refreshError && <p className="form-error">{refreshError}</p>}
-
-          {detail.system_prompt && <p className="card-body">{detail.system_prompt}</p>}
-
-          <p className="text-muted">
-            Cash {formatUsd(Number(detail.cash_balance))} · Account value {formatUsd(Number(detail.account_value))} · Total return{" "}
-            {formatPercent(Number(detail.total_return_pct))}
-          </p>
-
-          {detail.kind === "ai" && nextWakeups && (nextWakeups.forced_checkins.length > 0 || nextWakeups.self_scheduled.length > 0) && (
-            <div className="page-head">
-              {nextWakeups.forced_checkins.map((c, i) => (
-                <span className="tag tag-neutral" key={`forced-${i}`} title="Forced check-in">
-                  {c.label} · {formatDateTime(c.next_run_at)}
-                </span>
-              ))}
-              {nextWakeups.self_scheduled.map((w) => (
-                <span className="tag tag-accent" key={`self-${w.id}`} title={w.reason}>
-                  Self-scheduled · {formatDateTime(w.run_at)}
-                </span>
-              ))}
+          <div className="competitor-hero">
+            <div>
+              <div className="competitor-hero-tags">
+                {rank !== null && <span className="rank-badge">RANK {String(rank).padStart(2, "0")}</span>}
+                <span className="tag tag-neutral">{detail.kind === "ai" ? "AI OPERATOR" : "YOU"}</span>
+              </div>
+              <h1 className="competitor-title">{detail.name}</h1>
+              {detail.assistant_model && <p className="text-muted">{detail.assistant_model}</p>}
             </div>
-          )}
-
-          <div className="card elev-sm stack">
-            <div className="card-title">Positions</div>
-            <div className="table-wrap stack-mobile">
-              {detail.positions.length === 0 && <p className="text-muted">No open positions.</p>}
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Ticker</th>
-                    <th>Value</th>
-                    <th>P/L</th>
-                    <th>Instrument</th>
-                    <th>Qty</th>
-                    <th>Current price</th>
-                    <th>Avg cost</th>
-                    <th>Opened</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td data-label="Ticker">SPAXX (CASH)</td>
-                    <td data-label="Value">{formatUsd(Number(detail.cash_balance))}</td>
-                    <td></td>
-                    <td colSpan={4} className="text-muted">
-                      Cash
-                    </td>
-                    <td></td>
-                  </tr>
-                  {detail.positions.map((p, i) => {
-                    const pnl = positionPnl(p);
-                    return (
-                      <tr key={i}>
-                        <td data-label="Ticker">{p.ticker}</td>
-                        <td data-label="Value">{formatUsd(Number(p.current_value))}</td>
-                        <td data-label="P/L" className={pnlClass(pnl)}>
-                          {formatSignedUsd(pnl)}
-                        </td>
-                        <td data-label="Instrument">
-                          {p.instrument_type}
-                          {p.strike && ` $${p.strike} exp ${p.expiration}`}
-                          {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
-                        </td>
-                        <td data-label="Qty">{p.quantity}</td>
-                        <td data-label="Current price" className={pnlClass(pnl)}>
-                          {formatPrice(Number(p.current_price))}
-                        </td>
-                        <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
-                        <td data-label="Opened">{formatDateTime(p.opened_at)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="card elev-sm stack">
-            <div className="card-title">Trades</div>
-            <div className="table-wrap stack-mobile">
-              {!trades && <p className="text-muted">Loading…</p>}
-              {trades && trades.length === 0 && <p className="text-muted">No trades yet.</p>}
-              {trades && trades.length > 0 && (
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>When</th>
-                      <th>Side</th>
-                      <th>Ticker</th>
-                      <th>Qty</th>
-                      <th>Fill</th>
-                      <th>Status</th>
-                      <th>Thesis</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trades.map((t) => (
-                      <tr key={t.id}>
-                        <td data-label="When">{formatDateTime(t.created_at)}</td>
-                        <td data-label="Side">{t.side}</td>
-                        <td data-label="Ticker">
-                          {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
-                        </td>
-                        <td data-label="Qty">{t.quantity}</td>
-                        <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
-                        <td data-label="Status">
-                          <span className={`tag ${t.status === "filled" ? "tag-accent" : "tag-neutral"}`}>{t.status}</span>
-                          {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
-                        </td>
-                        <td data-label="Thesis">{t.thesis}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="competitor-hero-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleRefresh}
+                disabled={refreshing}
+                title="Force a live re-quote of this competitor's held tickers, right now"
+              >
+                {refreshing ? "Refreshing…" : "Refresh prices"}
+              </button>
+              {detail.kind === "human" && (
+                <button type="button" className="btn btn-primary" onClick={() => setTradeModalOpen(true)}>
+                  New trade
+                </button>
+              )}
+              {detail.kind === "ai" && (
+                <button type="button" className="btn btn-primary" onClick={handleWakeUp} disabled={waking}>
+                  {waking ? "Waking…" : "Wake up now"}
+                </button>
               )}
             </div>
           </div>
 
-          {detail.kind === "ai" && (
-            <div className="card elev-sm stack">
-              <div className="card-title">Scratchpad</div>
-              <p className="card-body">{scratchpad?.content || "(nothing written yet)"}</p>
-              {scratchpad?.updated_at && <div className="card-meta">{formatDateTime(scratchpad.updated_at)}</div>}
+          {refreshError && <p className="form-error">{refreshError}</p>}
+
+          <div className="stat-strip">
+            <div className="stat-strip-item">
+              <div className="card-kicker">Account value</div>
+              <div className="card-title">{formatUsd(accountValue)}</div>
             </div>
-          )}
+            <div className="stat-strip-item">
+              <div className="card-kicker">Total return</div>
+              <div className="card-title">{formatPercent(Number(detail.total_return_pct))}</div>
+            </div>
+            <div className="stat-strip-item">
+              <div className="card-kicker">Cash</div>
+              <div className="card-title">{formatUsd(cashBalance)}</div>
+              {cashPctOfBook !== null && <div className="card-meta">{formatPercent(cashPctOfBook)} of book</div>}
+            </div>
+            <div className="stat-strip-item">
+              <div className="card-kicker">Open risk</div>
+              <div className="card-title">{formatUsd(openRisk)}</div>
+              <div className="card-meta">
+                {detail.positions.length} position{detail.positions.length === 1 ? "" : "s"}
+                {dteSummary}
+              </div>
+            </div>
+            <div className="stat-strip-item">
+              <div className="card-kicker">Max drawdown</div>
+              <div className="card-title">{maxDrawdownPct !== null ? formatPercent(maxDrawdownPct) : "—"}</div>
+            </div>
+            {detail.kind === "ai" && (
+              <div className="stat-strip-item">
+                <div className="card-kicker">API cost</div>
+                <div className="card-title">{apiCost !== null ? formatUsd(apiCost) : "—"}</div>
+                {turns && <div className="card-meta">{turns.length} wake-up{turns.length === 1 ? "" : "s"}</div>}
+              </div>
+            )}
+          </div>
+
+          <div className="competitor-layout">
+            <div className="stack">
+              <div className="card elev-sm stack">
+                <div className="page-head" style={{ marginBottom: 0 }}>
+                  <div className="card-title">Open positions</div>
+                  {detail.prices_as_of && (
+                    <span className="text-muted" style={{ marginLeft: "auto", fontSize: 12 }} title="Oldest quote among the marks below">
+                      marks as of {formatDateTime(detail.prices_as_of)}
+                    </span>
+                  )}
+                </div>
+                <div className="table-wrap stack-mobile">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Ticker</th>
+                        <th>Instrument</th>
+                        <th>Qty</th>
+                        <th>Avg cost</th>
+                        <th>Mark</th>
+                        <th>Unrealized</th>
+                        <th>Target / dead</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td data-label="Ticker">SPAXX</td>
+                        <td data-label="Instrument" className="text-muted">
+                          Cash
+                        </td>
+                        <td data-label="Qty">—</td>
+                        <td data-label="Avg cost">—</td>
+                        <td data-label="Mark">—</td>
+                        <td data-label="Unrealized">{formatUsd(cashBalance)}</td>
+                        <td data-label="Target / dead"></td>
+                      </tr>
+                      {detail.positions.map((p, i) => {
+                        const pnl = positionPnl(p);
+                        return (
+                          <tr key={i}>
+                            <td data-label="Ticker">
+                              <strong>{p.ticker}</strong>
+                            </td>
+                            <td data-label="Instrument">
+                              {p.instrument_type}
+                              {p.strike && ` $${p.strike} exp ${formatShortDate(p.expiration)}`}
+                              {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
+                            </td>
+                            <td data-label="Qty">{p.quantity}</td>
+                            <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
+                            <td
+                              data-label="Mark"
+                              className={pnlClass(pnl)}
+                              title={p.priced_at ? `priced ${formatDateTime(p.priced_at)}` : "no live quote yet -- priced at cost"}
+                            >
+                              {formatPrice(Number(p.current_price))}
+                            </td>
+                            <td data-label="Unrealized" className={pnlClass(pnl)}>
+                              {formatSignedUsd(pnl)}
+                            </td>
+                            <td data-label="Target / dead" className="text-muted">
+                              {p.target_price ? formatPrice(Number(p.target_price)) : "—"} /{" "}
+                              {p.dead_price ? formatPrice(Number(p.dead_price)) : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {detail.positions.length === 0 && <p className="text-muted">No open positions.</p>}
+                </div>
+              </div>
+
+              <div className="card elev-sm stack">
+                <div className="page-head" style={{ marginBottom: 0 }}>
+                  <div className="card-title">Trade log</div>
+                  <span className="text-muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+                    Every fill carries a thesis — click a row to read it.
+                  </span>
+                </div>
+                <div className="table-wrap stack-mobile">
+                  {!trades && <p className="text-muted">Loading…</p>}
+                  {trades && trades.length === 0 && <p className="text-muted">No trades yet.</p>}
+                  {trades && trades.length > 0 && (
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>When</th>
+                          <th>Side</th>
+                          <th>Instrument</th>
+                          <th>Fill</th>
+                          <th>Limit</th>
+                          <th>Result</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {trades.map((t) => (
+                          <Fragment key={t.id}>
+                            <tr
+                              onClick={() => setExpandedTradeId((prev) => (prev === t.id ? null : t.id))}
+                              className={t.id === expandedTradeId ? "league-row-active" : undefined}
+                              style={{ cursor: "pointer" }}
+                            >
+                              <td data-label="When">{formatTime(t.created_at)}</td>
+                              <td data-label="Side">
+                                <strong>{t.side.replace("_", " ").toUpperCase()}</strong>
+                              </td>
+                              <td data-label="Instrument">
+                                <strong>{t.ticker}</strong>{" "}
+                                {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike} exp ${formatShortDate(t.expiration)}`}
+                              </td>
+                              <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
+                              <td data-label="Limit" className="text-muted">
+                                {t.limit_price ? formatPrice(Number(t.limit_price)) : "—"}
+                              </td>
+                              <td data-label="Result" className={t.status === "rejected" ? "text-muted" : undefined}>
+                                {tradeResultLabel(t)}
+                              </td>
+                            </tr>
+                            {expandedTradeId === t.id && (
+                              <tr>
+                                <td colSpan={6} className="league-expanded-cell">
+                                  <div className="card-kicker">Thesis</div>
+                                  <p className="card-body">{t.thesis}</p>
+                                  {t.status === "rejected" && <p className="form-error">{t.rejection_reason}</p>}
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="stack">
+              {detail.kind === "ai" && nextWakeups && (nextWakeups.forced_checkins.length > 0 || nextWakeups.self_scheduled.length > 0) && (
+                <div className="card elev-sm stack">
+                  <div className="card-title">Wake schedule</div>
+                  <div className="stack" style={{ gap: 6 }}>
+                    {nextWakeups.forced_checkins.map((c, i) => (
+                      <div key={`forced-${i}`} className="page-head" style={{ marginBottom: 0 }} title="Forced check-in">
+                        <span>{c.label}</span>
+                        <span className="text-muted" style={{ marginLeft: "auto" }}>
+                          {formatDateTime(c.next_run_at)}
+                        </span>
+                      </div>
+                    ))}
+                    {nextWakeups.self_scheduled.map((w) => (
+                      <div key={`self-${w.id}`} className="page-head" style={{ marginBottom: 0 }} title={w.reason}>
+                        <span>Self-scheduled</span>
+                        <span className="text-muted" style={{ marginLeft: "auto" }}>
+                          {formatDateTime(w.run_at)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {detail.kind === "ai" && (
+                <div className="card elev-sm stack">
+                  <div className="card-title">Latest scratchpad</div>
+                  <p className="card-body">{scratchpad?.content || "(nothing written yet)"}</p>
+                  {scratchpad?.updated_at && <div className="card-meta">{formatDateTime(scratchpad.updated_at)}</div>}
+                  {turns && turns.length > 0 && (
+                    <button type="button" className="btn btn-ghost" style={{ alignSelf: "flex-start", padding: 0 }} onClick={() => setOpenTurnId(turns[0].id)}>
+                      Full transcript
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {detail.system_prompt && (
+                <div className="card elev-sm stack">
+                  <div className="page-head" style={{ marginBottom: 0 }}>
+                    <div className="card-title">Mandate</div>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ marginLeft: "auto", padding: 0 }}
+                      onClick={() => setMandateExpanded((v) => !v)}
+                    >
+                      {mandateExpanded ? "Collapse" : "Expand"}
+                    </button>
+                  </div>
+                  <p className={mandateExpanded ? "card-body" : "card-body clamp-text"}>{detail.system_prompt}</p>
+                </div>
+              )}
+            </div>
+          </div>
 
           {detail.kind === "ai" && (
             <div className="card elev-sm stack">

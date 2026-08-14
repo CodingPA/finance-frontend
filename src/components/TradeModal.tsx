@@ -38,6 +38,8 @@ export function TradeModal({
   const [strike, setStrike] = useState("");
   const [expiration, setExpiration] = useState("");
   const [limitPrice, setLimitPrice] = useState("");
+  const [targetPrice, setTargetPrice] = useState("");
+  const [deadPrice, setDeadPrice] = useState("");
   const [thesis, setThesis] = useState("");
 
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -46,6 +48,10 @@ export function TradeModal({
   const [submitting, setSubmitting] = useState(false);
 
   const isOption = instrumentType !== "stock";
+  // target_price/dead_price only mean anything on a trade that opens or adds
+  // to a position -- a closing side has nothing left afterward to attach a
+  // take-profit/stop level to.
+  const isOpening = side === "buy" || side === "sell_to_open";
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -62,6 +68,8 @@ export function TradeModal({
         thesis,
         ...(isOption ? { strike, expiration } : {}),
         ...(limitPrice ? { limit_price: limitPrice } : {}),
+        ...(isOpening && targetPrice ? { target_price: targetPrice } : {}),
+        ...(isOpening && deadPrice ? { dead_price: deadPrice } : {}),
       };
       const trade = await submitTrade(competitorId, body);
       if (trade.status === "filled") {
@@ -187,6 +195,41 @@ export function TradeModal({
             placeholder="Reject if the live fill is worse than this"
           />
         </div>
+
+        {isOpening && (
+          <>
+            <div className="field">
+              <label htmlFor="trade-target">Target price (optional)</label>
+              <input
+                id="trade-target"
+                className="input"
+                value={targetPrice}
+                onChange={(e) => setTargetPrice(e.target.value)}
+                placeholder="Take-profit level -- informational, revisable anytime"
+              />
+              {fieldErrors.target_price?.map((msg) => (
+                <p className="form-error" key={msg}>
+                  {msg}
+                </p>
+              ))}
+            </div>
+            <div className="field">
+              <label htmlFor="trade-dead">Dead price (optional)</label>
+              <input
+                id="trade-dead"
+                className="input"
+                value={deadPrice}
+                onChange={(e) => setDeadPrice(e.target.value)}
+                placeholder="Invalidation/stop level -- informational, revisable anytime"
+              />
+              {fieldErrors.dead_price?.map((msg) => (
+                <p className="form-error" key={msg}>
+                  {msg}
+                </p>
+              ))}
+            </div>
+          </>
+        )}
 
         <div className="field">
           <label htmlFor="trade-thesis">Thesis</label>

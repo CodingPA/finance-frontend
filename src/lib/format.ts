@@ -74,6 +74,15 @@ export function formatDate(value: string | null | undefined): string {
 /** Date-only is ambiguous for anything priced intraday -- include the time
  *  (and the reader's own timezone abbreviation, since a quote timestamp is
  *  meaningless without knowing which clock it's on). */
+/** Time only, no date -- for a same-day log (e.g. a trade feed) where the
+ *  date is implied by context and repeating it on every row is just noise. */
+export function formatTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);

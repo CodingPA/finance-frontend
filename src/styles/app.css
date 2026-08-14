@@ -91,6 +91,88 @@
   color: var(--color-accent-700);
 }
 
+/* — competitor dashboard — */
+.competitor-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.competitor-hero-tags {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  padding: 4px 10px;
+}
+
+.competitor-title {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 32px;
+  line-height: 1.1;
+  margin: 0;
+}
+
+.competitor-hero-actions {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.stat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  border-top: 2px solid var(--color-divider);
+  border-bottom: 2px solid var(--color-divider);
+  margin-bottom: var(--space-6);
+}
+
+.stat-strip-item {
+  flex: 1 1 150px;
+  padding: var(--space-3) var(--space-4);
+  border-right: 1px solid var(--color-divider);
+}
+
+.stat-strip-item:last-child {
+  border-right: none;
+}
+
+.competitor-layout {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-4);
+  align-items: start;
+  margin-bottom: var(--space-4);
+}
+
+.clamp-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+@media (max-width: 768px) {
+  .competitor-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* — info tooltips — */
 .info-tip {
   position: relative;

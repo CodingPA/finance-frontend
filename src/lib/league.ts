@@ -64,6 +64,7 @@ export interface CompetitorSummary {
 }
 
 export interface Position {
+  id: number;
   instrument_type: InstrumentType;
   ticker: string;
   strike: string | null;
@@ -76,6 +77,18 @@ export interface Position {
   // same convention account_value already uses.
   current_price: string;
   current_value: string;
+  // Timestamp of the TickerSnapshot current_price/current_value came from --
+  // null when there's no snapshot yet and the mark fell back to avg_cost
+  // (not a live mark at all, so it gets no timestamp rather than a
+  // misleading one).
+  priced_at: string | null;
+  // Purely informational take-profit/invalidation levels the competitor
+  // recorded -- null if never set. Nothing enforces these (no auto-close,
+  // no alert); revisable anytime via POST .../positions/{id}/price-targets/
+  // without a new trade, since a competitor routinely moves a stop/target
+  // on a position it already holds rather than only at entry.
+  target_price: string | null;
+  dead_price: string | null;
   opened_at: string;
 }
 
@@ -90,6 +103,10 @@ export interface CompetitorDetail {
   total_return_pct: string;
   assistant_model?: string;
   system_prompt?: string;
+  // Oldest priced_at among the positions shown -- i.e. the least-fresh
+  // number actually contributing to this response, not the newest. Null if
+  // every position is on the avg_cost fallback (or there are no positions).
+  prices_as_of: string | null;
   positions: Position[];
 }
 
@@ -147,6 +164,11 @@ export interface NewTrade {
   strike?: string;
   expiration?: string;
   limit_price?: string;
+  // Only meaningful on an opening side (buy/sell_to_open) -- recorded on
+  // the resulting position, revisable later without a new trade via
+  // setPriceTargets() below.
+  target_price?: string;
+  dead_price?: string;
   thesis: string;
 }
 
@@ -295,6 +317,28 @@ export async function addCompetitor(competitionId: number, competitor: NewCompet
 export async function getCompetitor(competitorId: number): Promise<CompetitorDetail> {
   const res = await apiFetch(`/league/competitors/${competitorId}/`);
   return parseJsonOrThrow<CompetitorDetail>(res);
+}
+
+export interface PriceTargetsUpdate {
+  /** "" clears the level back to null rather than leaving it unset. */
+  target_price?: string;
+  dead_price?: string;
+}
+
+/** Revise target_price/dead_price on a position you already hold, without
+ *  submitting a trade -- e.g. "I'm moving my stop up." At least one of the
+ *  two fields is required. Human-only (an AI competitor's equivalent is its
+ *  own set_price_targets tool, not this endpoint). */
+export async function setPriceTargets(
+  competitorId: number,
+  positionId: number,
+  update: PriceTargetsUpdate,
+): Promise<Position> {
+  const res = await apiFetch(`/league/competitors/${competitorId}/positions/${positionId}/price-targets/`, {
+    method: "POST",
+    body: JSON.stringify(update),
+  });
+  return parseJsonOrThrow<Position>(res);
 }
 
 /** Force a live re-quote of just this competitor's held tickers/contracts --

@@ -14,12 +14,14 @@ import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatTime
 import { Markdown } from "../components/Markdown";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
+import { CompetitorAvatar } from "../components/CompetitorAvatar";
 import {
   getCompetitor,
   getNextWakeups,
   getScoreboard,
   getScratchpad,
   listCompetitions,
+  listCompetitors,
   listModels,
   listTrades,
   listTurns,
@@ -29,6 +31,7 @@ import {
   triggerWakeup,
   TURN_TRIGGER_LABELS,
   type CompetitorDetail,
+  type CompetitorSummary,
   type LeagueModel,
   type NextWakeups,
   type Scoreboard,
@@ -88,6 +91,10 @@ export function CompetitorDashboardPage() {
   // neither (drawdown is only on the scoreboard row; rank isn't a field at
   // all, just this competitor's position in the scoreboard's sorted list).
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
+  // Cosmetic identity (color/avatar) lives on the list-endpoint's
+  // CompetitorSummary, not CompetitorDetail -- fetched separately and
+  // joined by id rather than assumed onto `detail`.
+  const [competitorSummary, setCompetitorSummary] = useState<CompetitorSummary | null>(null);
   const [mandateExpanded, setMandateExpanded] = useState(false);
   const [expandedTradeId, setExpandedTradeId] = useState<number | null>(null);
 
@@ -116,6 +123,17 @@ export function CompetitorDashboardPage() {
       cancelled = true;
     };
   }, [competitionId, refreshSignal]);
+
+  useEffect(() => {
+    if (!competitionId) return;
+    let cancelled = false;
+    listCompetitors(competitionId)
+      .then((list) => !cancelled && setCompetitorSummary(list.find((c) => c.id === competitorId) ?? null))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [competitionId, competitorId, refreshSignal]);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,7 +294,10 @@ export function CompetitorDashboardPage() {
                 {rank !== null && <span className="rank-badge">RANK {String(rank).padStart(2, "0")}</span>}
                 <span className="tag tag-neutral">{detail.kind === "ai" ? "AI OPERATOR" : "YOU"}</span>
               </div>
-              <h1 className="competitor-title">{detail.name}</h1>
+              <h1 className="competitor-title" style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <CompetitorAvatar color={competitorSummary?.color} avatar={competitorSummary?.avatar} size={32} />
+                {detail.name}
+              </h1>
               {detail.assistant_model && <p className="text-muted">{detail.assistant_model}</p>}
             </div>
             <div className="competitor-hero-right">

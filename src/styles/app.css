@@ -88,7 +88,7 @@
 }
 
 .pnl-negative {
-  color: var(--color-accent-700);
+  color: var(--color-negative);
 }
 
 /* — competitor dashboard — */
@@ -108,11 +108,20 @@
   margin-bottom: var(--space-1);
 }
 
+.competitor-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  line-height: 1;
+  flex: none;
+}
+
 .rank-badge {
   display: inline-flex;
   align-items: center;
   background: var(--color-accent);
-  color: var(--color-bg);
+  color: var(--color-on-accent);
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
   font-size: 12px;
@@ -573,7 +582,7 @@
   gap: var(--space-4);
   padding: var(--space-4);
   background: var(--color-accent);
-  color: var(--color-bg);
+  color: var(--color-on-accent);
 }
 
 .league-hero-tags {
@@ -583,8 +592,8 @@
 }
 
 .league-hero-leader-tag {
-  border-color: var(--color-bg);
-  color: var(--color-bg);
+  border-color: var(--color-on-accent);
+  color: var(--color-on-accent);
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
   letter-spacing: 0.06em;
@@ -604,7 +613,7 @@
 }
 
 .league-hero-card .card-kicker {
-  color: var(--color-bg);
+  color: var(--color-on-accent);
   opacity: 0.75;
 }
 

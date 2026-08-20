@@ -105,6 +105,25 @@ export interface CompetitorSummary {
   user_email?: string;
   assistant_model?: string;
   system_prompt?: string;
+  // Cosmetic-only identity, freeform and backend-unvalidated (max 7/8 chars
+  // respectively) -- "" for a competitor that never set one (e.g. a custom
+  // AI persona that isn't one of the seeded built-ins), not absent, so
+  // competitorColor()/competitorAvatar() below are the right way to read
+  // these rather than checking truthiness inline.
+  color?: string;
+  avatar?: string;
+}
+
+export const DEFAULT_COMPETITOR_COLOR = "var(--color-neutral-400)";
+export const DEFAULT_COMPETITOR_AVATAR = "\u{1F916}"; // 🤖
+
+/** "" (unset) falls back to a neutral default rather than rendering blank. */
+export function competitorColor(color?: string): string {
+  return color && color.trim() ? color : DEFAULT_COMPETITOR_COLOR;
+}
+
+export function competitorAvatar(avatar?: string): string {
+  return avatar && avatar.trim() ? avatar : DEFAULT_COMPETITOR_AVATAR;
 }
 
 export interface Position {
@@ -232,6 +251,9 @@ export interface NewCompetitor {
   kind: CompetitorKind;
   model?: string;
   system_prompt?: string;
+  // Both default to "" server-side when omitted.
+  color?: string;
+  avatar?: string;
 }
 
 export interface Wakeup {

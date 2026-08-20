@@ -20,9 +20,11 @@ import { Markdown } from "../components/Markdown";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import { AddCompetitorModal } from "../components/AddCompetitorModal";
+import { CompetitorAvatar } from "../components/CompetitorAvatar";
 import { EquityChart, type EquityChartSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
 import {
+  competitorColor,
   getCompetitor,
   getEquityCurve,
   getNextWakeups,
@@ -70,6 +72,7 @@ function buildChartSeries(
   scoreboardRows: Scoreboard["competitors"],
   curve: EquityCurveSeries[] | null,
   startingCapital: number,
+  colorById: Map<number, string>,
 ): EquityChartSeries[] {
   if (scoreboardRows.length === 0) return [];
   const curveById = new Map((curve ?? []).map((c) => [c.competitor_id, c]));
@@ -89,8 +92,20 @@ function buildChartSeries(
   const flat = rest.filter((r) => r.flat);
 
   const out: EquityChartSeries[] = [];
-  if (leader) out.push({ id: `c-${leader.id}`, label: leader.name, color: LEADER_COLOR, points: leader.points, emphasized: true });
-  for (const r of notable) out.push({ id: `c-${r.id}`, label: r.name, color: NOTABLE_COLOR, points: r.points });
+  // A competitor's own color (badges, dashboard) doubles as its chart-line
+  // color when set -- falls back to the old leader/neutral split for a
+  // competitor that never picked one (docs: blank color on a custom AI
+  // persona means "no identity set").
+  if (leader)
+    out.push({
+      id: `c-${leader.id}`,
+      label: leader.name,
+      color: colorById.get(leader.id) || LEADER_COLOR,
+      points: leader.points,
+      emphasized: true,
+    });
+  for (const r of notable)
+    out.push({ id: `c-${r.id}`, label: r.name, color: colorById.get(r.id) || NOTABLE_COLOR, points: r.points });
   if (flat.length > 0) {
     // Any one flat member's own points are representative -- by definition
     // they're all within epsilon of starting capital throughout.
@@ -354,9 +369,15 @@ export function LeaguePage() {
   const startingCapital = competition ? Number(competition.starting_capital) : 0;
   const dayInfo = competition ? computeDayInfo(competition.start_date, competition.end_date) : null;
 
+  const colorById = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const c of competitors) if (c.color) map.set(c.id, c.color);
+    return map;
+  }, [competitors]);
+
   const chartSeries = useMemo(
-    () => (scoreboard ? buildChartSeries(scoreboard.competitors, equityCurve, startingCapital) : []),
-    [scoreboard, equityCurve, startingCapital],
+    () => (scoreboard ? buildChartSeries(scoreboard.competitors, equityCurve, startingCapital, colorById) : []),
+    [scoreboard, equityCurve, startingCapital, colorById],
   );
 
   const curveById = useMemo(() => {
@@ -375,7 +396,8 @@ export function LeaguePage() {
   }, [equityCurve]);
 
   const leaderRow = scoreboard?.competitors[0] ?? null;
-  const leaderModel = leaderRow ? competitors.find((c) => c.id === leaderRow.id)?.assistant_model : undefined;
+  const leaderSummary = leaderRow ? competitors.find((c) => c.id === leaderRow.id) : undefined;
+  const leaderModel = leaderSummary?.assistant_model;
   const secondRow = scoreboard?.competitors[1] ?? null;
   const leadOverSecondPts =
     leaderRow && secondRow ? (Number(leaderRow.total_return_pct) - Number(secondRow.total_return_pct)) * 100 : null;
@@ -453,7 +475,9 @@ export function LeaguePage() {
                 <div className="league-hero-tags">
                   <span className="tag tag-outline league-hero-leader-tag">Leader · Rank 01</span>
                 </div>
-                <h3 className="league-hero-name">{leaderRow.name}</h3>
+                <h3 className="league-hero-name">
+                  <CompetitorAvatar color={leaderSummary?.color} avatar={leaderSummary?.avatar} size={28} /> {leaderRow.name}
+                </h3>
                 {leaderModel && <p className="league-hero-sub">{leaderModel}</p>}
                 <div className="league-hero-stats">
                   <div>
@@ -536,12 +560,16 @@ export function LeaguePage() {
                         >
                           <td data-label="#">{String(rank).padStart(2, "0")}</td>
                           <td data-label="Competitor">
-                            {c.name} <span className={`tag ${c.kind === "ai" ? "tag-outline" : "tag-accent"}`}>{c.kind === "ai" ? "AI" : "YOU"}</span>
+                            <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                              <CompetitorAvatar color={summary?.color} avatar={summary?.avatar} size={20} />
+                              {c.name}
+                            </span>{" "}
+                            <span className={`tag ${c.kind === "ai" ? "tag-outline" : "tag-accent"}`}>{c.kind === "ai" ? "AI" : "YOU"}</span>
                           </td>
                           <td data-label="Curve">
                             <Sparkline
                               points={(curveById.get(c.id)?.points ?? []).map((p) => ({ at: p.at, value: Number(p.account_value) }))}
-                              color={rank === 1 ? LEADER_COLOR : NOTABLE_COLOR}
+                              color={summary?.color ? competitorColor(summary.color) : rank === 1 ? LEADER_COLOR : NOTABLE_COLOR}
                             />
                           </td>
                           <td data-label="Account">{formatUsd(Number(c.account_value))}</td>
@@ -769,7 +797,10 @@ function CompetitorPanel({
   return (
     <div className="card elev-sm stack">
       <div className="page-head">
-        <h3>{summary.name}</h3>
+        <h3 style={{ display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
+          <CompetitorAvatar color={summary.color} avatar={summary.avatar} size={24} />
+          {summary.name}
+        </h3>
         {summary.assistant_model && <span className="tag tag-neutral">{summary.assistant_model}</span>}
         {summary.kind === "human" && (
           <button type="button" className="btn btn-primary" onClick={() => setTradeModalOpen(true)}>

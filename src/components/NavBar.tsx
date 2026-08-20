@@ -3,6 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { useRealtimeStatus } from "../hooks/useRealtimeStatus";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { NotificationBell } from "./NotificationBell";
+import { ThemeToggle } from "./ThemeToggle";
 
 const REALTIME_LABEL = {
   idle: "Offline",
@@ -40,12 +41,16 @@ export function NavBar() {
             </>
           )}
           <NotificationBell />
+          <ThemeToggle />
           <button type="button" className="btn btn-secondary" onClick={handleLogout}>
             Log out
           </button>
         </>
       ) : (
-        <Link to="/login">Sign in</Link>
+        <>
+          <ThemeToggle />
+          <Link to="/login">Sign in</Link>
+        </>
       )}
     </nav>
   );

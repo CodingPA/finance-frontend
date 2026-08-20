@@ -2,6 +2,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;800&display=swap');
 
 :root {
+  color-scheme: light;
   --color-bg: #f3f2f2;
   --color-surface: #eae9e9;
   --color-text: #201e1d;
@@ -9,10 +10,25 @@
   --color-accent-2: #e15b47;
   --color-divider: color-mix(in srgb, #201e1d 40%, transparent);
 
-  /* Not part of the accent ramp -- a single pragmatic addition for
-     financial gain/loss coloring (P/L, price vs. cost). --color-negative
-     reuses --color-accent-700 below rather than duplicating it. */
+  /* Financial gain/loss coloring (P/L, price vs. cost) -- not part of the
+     accent ramp since ramp steps shift per-theme (see the dark block
+     below) and these two need their own independently-tuned dark values. */
   --color-positive: #1a7a42;
+  --color-negative: #ae1800;
+
+  /* Text color for content sitting on a --color-accent background
+     (.btn-primary, .rank-badge, .league-hero-card, ...). --color-accent
+     itself doesn't change between themes, so this doesn't either -- unlike
+     --color-bg, which text-on-accent must NOT be tied to, since --color-bg
+     flips dark in dark mode and would leave near-black text on a red
+     button. */
+  --color-on-accent: #f3f2f2;
+
+  /* Fixed dark scrim behind modals (.dialog-backdrop) -- intentionally the
+     same in both themes rather than derived from the (theme-reactive)
+     neutral ramp, since a scrim needs to stay dark regardless of page
+     theme. */
+  --color-scrim: color-mix(in srgb, #2d2b2b 50%, transparent);
 
   /* Tonal ramps — generated in OKLCH on one shared lightness scale, so the
      same step of any role matches the others in visual value. */
@@ -66,6 +82,59 @@
   --shadow-sm: 0 1px 2px color-mix(in srgb, #2d2b2b 14%, transparent);
   --shadow-md: 0 3px 10px color-mix(in srgb, #2d2b2b 16%, transparent);
   --shadow-lg: 0 12px 32px color-mix(in srgb, #2d2b2b 22%, transparent);
+}
+
+/* Dark theme -- set by ThemeContext.tsx (data-theme attribute on <html>),
+   seeded pre-paint by the inline script in index.html. Every ramp
+   (neutral/accent/accent-2) is consumed elsewhere on a consistent
+   low-number=light-end/high-number=dark-end convention (e.g.
+   .tag-neutral's neutral-100 bg + neutral-800 text), so reversing each
+   ramp's 9 values here keeps every consumer correct with zero component
+   changes. --color-accent/--color-accent-2 themselves are left unchanged --
+   already vivid enough to read on both themes. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-bg: #201e1d;
+  --color-surface: #2d2b2b;
+  --color-text: #f3f2f2;
+  --color-divider: color-mix(in srgb, #f3f2f2 30%, transparent);
+
+  --color-positive: #3ecb7e;
+  --color-negative: #ff7a63;
+
+  --color-neutral-100: #2d2b2b;
+  --color-neutral-200: #444141;
+  --color-neutral-300: #605d5d;
+  --color-neutral-400: #7d7979;
+  --color-neutral-500: #9b9797;
+  --color-neutral-600: #bab6b6;
+  --color-neutral-700: #d7d3d3;
+  --color-neutral-800: #eae7e7;
+  --color-neutral-900: #f8f4f4;
+
+  --color-accent-100: #4d170e;
+  --color-accent-200: #7c1405;
+  --color-accent-300: #ae1800;
+  --color-accent-400: #dd2b0f;
+  --color-accent-500: #ff563c;
+  --color-accent-600: #ff9783;
+  --color-accent-700: #ffc4b8;
+  --color-accent-800: #ffe0d9;
+  --color-accent-900: #fff2ef;
+
+  --color-accent-2-100: #471d16;
+  --color-accent-2-200: #71261b;
+  --color-accent-2-300: #9e3526;
+  --color-accent-2-400: #c94b39;
+  --color-accent-2-500: #ef6853;
+  --color-accent-2-600: #ff9784;
+  --color-accent-2-700: #ffc4b9;
+  --color-accent-2-800: #ffe0da;
+  --color-accent-2-900: #fff2ef;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 3px 10px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.65);
 }
 
 body {
@@ -128,7 +197,7 @@ figcaption {
 }
 .btn svg { display: block; }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.btn-primary { background: var(--color-accent); color: var(--color-bg); }
+.btn-primary { background: var(--color-accent); color: var(--color-on-accent); }
 .btn-primary:hover { background: var(--color-accent-600); }
 .btn-primary:active { background: var(--color-accent-700); }
 .btn-secondary { border-color: var(--color-divider); }
@@ -177,7 +246,7 @@ textarea.input { min-height: 90px; resize: vertical; }
   padding: 7px 12px; font-size: 13px; cursor: pointer;
 }
 .seg-opt + .seg-opt { border-left: 1px solid var(--color-divider); }
-.seg-opt:has(input:checked) { background: var(--color-accent); color: var(--color-bg); }
+.seg-opt:has(input:checked) { background: var(--color-accent); color: var(--color-on-accent); }
 .seg-opt:not(:has(input:checked)):hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
 .seg-opt:has(input:focus-visible) { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 
@@ -241,7 +310,7 @@ textarea.input { min-height: 90px; resize: vertical; }
 .dialog-backdrop {
   position: fixed; inset: 0; display: grid; place-items: center;
   padding: var(--space-4);
-  background: color-mix(in srgb, var(--color-neutral-900) 50%, transparent);
+  background: var(--color-scrim);
 }
 .dialog {
   width: min(440px, 100%); display: flex; flex-direction: column; gap: var(--space-3);

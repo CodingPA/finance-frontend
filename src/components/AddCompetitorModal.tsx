@@ -6,6 +6,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { Modal } from "./Modal";
+import { CompetitorAvatar } from "./CompetitorAvatar";
 import { useAuth } from "../context/AuthContext";
 import { addCompetitor, listModels, type CompetitorKind, type CompetitorSummary, type LeagueModel, type ModelProvider } from "../lib/league";
 import { extractFieldErrors, extractGenericMessage, type FieldErrors } from "../lib/formErrors";
@@ -30,6 +31,8 @@ export function AddCompetitorModal({
   const { user } = useAuth();
   const [kind, setKind] = useState<CompetitorKind>("human");
   const [name, setName] = useState(hasHumanCompetitor ? "" : user?.name || "Me");
+  const [color, setColor] = useState("");
+  const [avatar, setAvatar] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [models, setModels] = useState<LeagueModel[] | null>(null);
   const [modelId, setModelId] = useState("");
@@ -63,6 +66,8 @@ export function AddCompetitorModal({
       const competitor = await addCompetitor(competitionId, {
         name: name.trim() || "Me",
         kind,
+        ...(color.trim() ? { color: color.trim() } : {}),
+        ...(avatar.trim() ? { avatar: avatar.trim() } : {}),
         ...(kind === "ai" ? { system_prompt: systemPrompt, ...(modelId ? { model: modelId } : {}) } : {}),
       });
       onJoined(competitor);
@@ -102,6 +107,49 @@ export function AddCompetitorModal({
             required
           />
           {fieldErrors.name?.map((msg) => (
+            <p className="form-error" key={msg}>
+              {msg}
+            </p>
+          ))}
+        </div>
+
+        <div className="field">
+          <label htmlFor="competitor-color">Color &amp; avatar (optional)</label>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <CompetitorAvatar color={color} avatar={avatar} size={32} />
+            <input
+              id="competitor-color"
+              type="color"
+              value={color || "#2563EB"}
+              onChange={(e) => setColor(e.target.value)}
+              style={{ width: 36, height: 32, padding: 0, border: "none", background: "none" }}
+              aria-label="Color"
+            />
+            <input
+              className="input"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              placeholder="#2563EB"
+              maxLength={7}
+              style={{ maxWidth: 100 }}
+              aria-label="Color hex code"
+            />
+            <input
+              className="input"
+              value={avatar}
+              onChange={(e) => setAvatar(e.target.value)}
+              placeholder="🧭"
+              maxLength={8}
+              style={{ maxWidth: 60 }}
+              aria-label="Avatar emoji"
+            />
+          </div>
+          {fieldErrors.color?.map((msg) => (
+            <p className="form-error" key={msg}>
+              {msg}
+            </p>
+          ))}
+          {fieldErrors.avatar?.map((msg) => (
             <p className="form-error" key={msg}>
               {msg}
             </p>

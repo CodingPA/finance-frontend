@@ -9,7 +9,7 @@
 // as dismissed: a notification stays in the list (and keeps being
 // redelivered on reconnect) until the user explicitly acks it.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { listNotifications, ackNotification, type Notification } from "../lib/notifications";
 import { formatDateTime } from "../lib/format";
 import { realtime } from "../lib/ws";
@@ -18,6 +18,7 @@ export function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,6 +61,20 @@ export function NotificationBell() {
     });
   }, []);
 
+  // Click/tap anywhere outside the bell+dropdown closes it -- only wired up
+  // while open, so it's not paying for a global listener the rest of the
+  // time.
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [open]);
+
   const handleDismiss = async (id: number) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
     try {
@@ -70,8 +85,19 @@ export function NotificationBell() {
     }
   };
 
+  const handleDismissAll = async () => {
+    const ids = notifications.map((n) => n.id);
+    setNotifications([]);
+    try {
+      await Promise.all(ids.map((id) => ackNotification(id)));
+    } catch {
+      // Best-effort, same as a single dismiss -- any that failed to ack
+      // will just come back on the next reconnect/poll.
+    }
+  };
+
   return (
-    <div className="notif-bell">
+    <div className="notif-bell" ref={containerRef}>
       <button
         type="button"
         className="btn btn-secondary"
@@ -83,6 +109,14 @@ export function NotificationBell() {
       </button>
       {open && (
         <div className="notif-menu elev-md">
+          {notifications.length > 0 && (
+            <div className="page-head" style={{ marginBottom: 0 }}>
+              <span className="card-kicker">Notifications</span>
+              <button type="button" className="btn btn-ghost btn-icon-sm" style={{ marginLeft: "auto" }} onClick={handleDismissAll}>
+                Dismiss all
+              </button>
+            </div>
+          )}
           {loading && <div className="notif-empty text-muted">Loading…</div>}
           {!loading && notifications.length === 0 && <div className="notif-empty text-muted">No new notifications</div>}
           {!loading &&

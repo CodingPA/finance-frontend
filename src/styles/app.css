@@ -719,8 +719,8 @@
   border-left: 3px solid var(--color-text);
 }
 
-.league-footer-strip {
-  margin-top: var(--space-4);
+.league-stats-strip {
+  margin: var(--space-4) 0;
 }
 
 /* Drag-to-resize from the bottom-right corner -- native `resize`, no JS.

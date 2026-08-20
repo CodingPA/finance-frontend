@@ -513,6 +513,33 @@ export function LeaguePage() {
             </div>
           )}
 
+          {scoreboard && (
+            <div className="stat-strip league-stats-strip">
+              <div className="stat-strip-item">
+                <div className="card-kicker">League total value</div>
+                <div className="card-title">{formatUsd(totalValue)}</div>
+                <div className="card-meta">vs {formatUsd(deployed)} deployed</div>
+              </div>
+              <div className="stat-strip-item">
+                <div className="card-kicker">Trades filled</div>
+                <div className="card-title">{totalFilledTrades}</div>
+                <div className="card-meta">
+                  {topRejection ? `${topRejection.count} rejected on ${rejectionLabel(topRejection.reason)}` : "No trades rejected"}
+                </div>
+              </div>
+              <div className="stat-strip-item">
+                <div className="card-kicker">Spent on thinking</div>
+                <div className="card-title">{formatUsd(totalApiCost)}</div>
+                <div className="card-meta">{costPerPoint !== null ? `${formatUsd(costPerPoint)} per point of return` : "—"}</div>
+              </div>
+              <div className="stat-strip-item">
+                <div className="card-kicker">Next forced check-in</div>
+                <div className="card-title">{nextForcedCheckin ? formatTime(nextForcedCheckin.next_run_at) : "—"}</div>
+                <div className="card-meta">{nextForcedCheckin ? nextForcedCheckin.label : "no AI competitors yet"}</div>
+              </div>
+            </div>
+          )}
+
           <div className="seg" role="tablist" aria-label="League view">
             <label className="seg-opt">
               <input type="radio" name="league-top-tab" checked={topTab === "positions"} onChange={() => setTopTab("positions")} />
@@ -687,33 +714,6 @@ export function LeaguePage() {
                   </table>
                 </div>
               )}
-            </div>
-          )}
-
-          {scoreboard && (
-            <div className="stat-strip league-footer-strip">
-              <div className="stat-strip-item">
-                <div className="card-kicker">League total value</div>
-                <div className="card-title">{formatUsd(totalValue)}</div>
-                <div className="card-meta">vs {formatUsd(deployed)} deployed</div>
-              </div>
-              <div className="stat-strip-item">
-                <div className="card-kicker">Trades filled</div>
-                <div className="card-title">{totalFilledTrades}</div>
-                <div className="card-meta">
-                  {topRejection ? `${topRejection.count} rejected on ${rejectionLabel(topRejection.reason)}` : "No trades rejected"}
-                </div>
-              </div>
-              <div className="stat-strip-item">
-                <div className="card-kicker">Spent on thinking</div>
-                <div className="card-title">{formatUsd(totalApiCost)}</div>
-                <div className="card-meta">{costPerPoint !== null ? `${formatUsd(costPerPoint)} per point of return` : "—"}</div>
-              </div>
-              <div className="stat-strip-item">
-                <div className="card-kicker">Next forced check-in</div>
-                <div className="card-title">{nextForcedCheckin ? formatTime(nextForcedCheckin.next_run_at) : "—"}</div>
-                <div className="card-meta">{nextForcedCheckin ? nextForcedCheckin.label : "no AI competitors yet"}</div>
-              </div>
             </div>
           )}
 

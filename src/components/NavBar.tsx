@@ -33,6 +33,7 @@ export function NavBar() {
           {!isMobile && (
             <>
               <Link to="/screen">Screener</Link>
+              <Link to="/social">Social</Link>
               <Link to="/league">League</Link>
               <span className={`tag ${wsStatus === "open" ? "tag-accent" : "tag-neutral"}`} title="Realtime connection">
                 {REALTIME_LABEL[wsStatus]}

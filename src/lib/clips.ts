@@ -13,7 +13,7 @@ export type ClipCategory =
   | "insider_activity"
   | "context";
 
-export type ClipSourceType = "filing" | "news" | "wiki" | "press_release" | "other";
+export type ClipSourceType = "filing" | "news" | "wiki" | "press_release" | "reddit" | "other";
 
 export const CLIP_CATEGORY_LABELS: Record<ClipCategory, string> = {
   revenue_quality: "Revenue quality",
@@ -30,6 +30,7 @@ export const CLIP_SOURCE_TYPE_LABELS: Record<ClipSourceType, string> = {
   news: "News",
   wiki: "Wiki",
   press_release: "Press release",
+  reddit: "Reddit",
   other: "Other",
 };
 

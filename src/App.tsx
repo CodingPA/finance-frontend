@@ -9,6 +9,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ScreenerPage } from "./pages/ScreenerPage";
+import { SocialPage } from "./pages/SocialPage";
 import { LeaguePage } from "./pages/LeaguePage";
 import { CompetitorDashboardPage } from "./pages/CompetitorDashboardPage";
 
@@ -42,6 +43,14 @@ export function App() {
               element={
                 <ProtectedRoute>
                   <ScreenerPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/social"
+              element={
+                <ProtectedRoute>
+                  <SocialPage />
                 </ProtectedRoute>
               }
             />

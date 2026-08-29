@@ -27,6 +27,7 @@ import {
 import { getJournal, updateJournal, type CompanyJournal, type JournalPatch } from "../lib/journal";
 import { listMediaFiles, uploadMedia, deleteMediaFile, type MediaFile, type MediaStatus } from "../lib/media";
 import { listWikiPages, linkWikiPage, unlinkWikiPage, type WikiPage } from "../lib/wiki";
+import { redditUrl } from "../lib/social";
 import { realtime } from "../lib/ws";
 import { Modal } from "../components/Modal";
 import { InfoTip } from "../components/InfoTip";
@@ -293,7 +294,15 @@ function ClipsCard({
                 <span className="tag tag-neutral">{CLIP_SOURCE_TYPE_LABELS[clip.source_type]}</span>
               </div>
               <p className="card-body">{clip.text}</p>
-              {clip.source && <div className="card-meta">{clip.source}</div>}
+              {clip.source && clip.source_type === "reddit" ? (
+                <div className="card-meta">
+                  <a href={redditUrl(clip.source)} target="_blank" rel="noreferrer">
+                    {clip.source}
+                  </a>
+                </div>
+              ) : (
+                clip.source && <div className="card-meta">{clip.source}</div>
+              )}
               <div className="card-meta">{formatDate(clip.created_at)}</div>
               <button type="button" className="btn btn-ghost" onClick={() => handleDelete(clip.id)}>
                 Delete

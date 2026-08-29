@@ -20,6 +20,11 @@ const TABS = [
     icon: <path d="m20 20-3.5-3.5M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z" />,
   },
   {
+    to: "/social",
+    label: "Social",
+    icon: <path d="M4 4h16v11H8l-4 4V4Z" />,
+  },
+  {
     to: "/league",
     label: "League",
     icon: <path d="M7 21h10M12 17v4M6 4h12v3a6 6 0 0 1-12 0V4ZM6 5H3v2a3 3 0 0 0 3 3M18 5h3v2a3 3 0 0 1-3 3" />,

@@ -181,6 +181,41 @@
   margin-bottom: var(--space-4);
 }
 
+.trade-log-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.ticker-memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ticker-memory-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.ticker-memory-item:last-child {
+  border-bottom: none;
+}
+
+.ticker-memory-item:hover {
+  background: color-mix(in srgb, var(--color-text) 7%, transparent);
+}
+
 .clamp-text {
   display: -webkit-box;
   -webkit-line-clamp: 4;

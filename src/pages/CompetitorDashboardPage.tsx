@@ -14,12 +14,14 @@ import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatTime
 import { Markdown } from "../components/Markdown";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
+import { TickerMemoryModal } from "../components/TickerMemoryModal";
 import { CompetitorAvatar } from "../components/CompetitorAvatar";
 import {
   getCompetitor,
   getNextWakeups,
   getScoreboard,
   getScratchpad,
+  getTickerMemories,
   listCompetitions,
   listCompetitors,
   listModels,
@@ -36,6 +38,7 @@ import {
   type NextWakeups,
   type Scoreboard,
   type Scratchpad,
+  type TickerMemory,
   type Trade,
   type TurnSummary,
 } from "../lib/league";
@@ -71,6 +74,8 @@ export function CompetitorDashboardPage() {
   const [detail, setDetail] = useState<CompetitorDetail | null>(null);
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [scratchpad, setScratchpad] = useState<Scratchpad | null>(null);
+  const [tickerMemories, setTickerMemories] = useState<TickerMemory[] | null>(null);
+  const [openTickerMemory, setOpenTickerMemory] = useState<TickerMemory | null>(null);
   const [turns, setTurns] = useState<TurnSummary[] | null>(null);
   const [nextWakeups, setNextWakeups] = useState<NextWakeups | null>(null);
   const [models, setModels] = useState<LeagueModel[]>([]);
@@ -160,6 +165,9 @@ export function CompetitorDashboardPage() {
     let cancelled = false;
     getScratchpad(competitorId)
       .then((s) => !cancelled && setScratchpad(s))
+      .catch(() => {});
+    getTickerMemories(competitorId)
+      .then((m) => !cancelled && setTickerMemories(m))
       .catch(() => {});
     listTurns(competitorId)
       .then((t) => !cancelled && setTurns(t))
@@ -466,7 +474,7 @@ export function CompetitorDashboardPage() {
                     Every fill carries a thesis — click a row to read it.
                   </span>
                 </div>
-                <div className="table-wrap stack-mobile">
+                <div className="table-wrap stack-mobile trade-log-scroll">
                   {!trades && <p className="text-muted">Loading…</p>}
                   {trades && trades.length === 0 && <p className="text-muted">No trades yet.</p>}
                   {trades && trades.length > 0 && (
@@ -521,6 +529,36 @@ export function CompetitorDashboardPage() {
                   )}
                 </div>
               </div>
+
+              {detail.kind === "ai" && (
+                <div className="card elev-sm stack">
+                  <div className="page-head" style={{ marginBottom: 0 }}>
+                    <div className="card-title">Ticker research</div>
+                    <span className="text-muted" style={{ marginLeft: "auto", fontSize: 12 }}>
+                      Click a ticker for its notes.
+                    </span>
+                  </div>
+                  {!tickerMemories && <p className="text-muted">Loading…</p>}
+                  {tickerMemories && tickerMemories.length === 0 && <p className="text-muted">No ticker research yet.</p>}
+                  {tickerMemories && tickerMemories.length > 0 && (
+                    <div className="ticker-memory-list">
+                      {tickerMemories.map((m) => (
+                        <button
+                          key={m.ticker}
+                          type="button"
+                          className="ticker-memory-item"
+                          onClick={() => setOpenTickerMemory(m)}
+                        >
+                          <strong>{m.ticker}</strong>
+                          <span className="text-muted" style={{ fontSize: 12 }}>
+                            {formatDateTime(m.updated_at)}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="stack">
@@ -639,6 +677,8 @@ export function CompetitorDashboardPage() {
       {detail && openTurnId !== null && (
         <TurnTranscriptModal competitorId={detail.id} turnId={openTurnId} provider={provider} onClose={() => setOpenTurnId(null)} />
       )}
+
+      {openTickerMemory && <TickerMemoryModal memory={openTickerMemory} onClose={() => setOpenTickerMemory(null)} />}
     </div>
   );
 }

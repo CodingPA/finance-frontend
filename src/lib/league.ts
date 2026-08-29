@@ -343,6 +343,14 @@ export interface Scratchpad {
   updated_at: string | null;
 }
 
+// Per-ticker counterpart to the scratchpad's single cross-ticker blob --
+// most-recently-updated first, [] for competitors with no saved research yet.
+export interface TickerMemory {
+  ticker: string;
+  content: string;
+  updated_at: string;
+}
+
 export async function listCompetitions(): Promise<Competition[]> {
   const res = await apiFetch("/league/competitions/");
   return parseJsonOrThrow<Competition[]>(res);
@@ -492,6 +500,11 @@ export async function getTurn(competitorId: number, turnId: number): Promise<Tur
 export async function getScratchpad(competitorId: number): Promise<Scratchpad> {
   const res = await apiFetch(`/league/competitors/${competitorId}/scratchpad/`);
   return parseJsonOrThrow<Scratchpad>(res);
+}
+
+export async function getTickerMemories(competitorId: number): Promise<TickerMemory[]> {
+  const res = await apiFetch(`/league/competitors/${competitorId}/ticker-memories/`);
+  return parseJsonOrThrow<TickerMemory[]>(res);
 }
 
 export interface EquityCurvePoint {

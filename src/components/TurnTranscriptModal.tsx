@@ -1,5 +1,5 @@
 // Full play-by-play for one AI competitor's wake-up turn -- the "peek into
-// AI logic" view (docs/league-api.md). Transcript entries are raw provider
+// AI logic" view (finance-backend/docs/league-api.md). Transcript entries are raw provider
 // items verbatim (`item.model_dump(exclude_none=True)` server-side) with no
 // shared shape between providers or, for OpenAI/Gemini, even within a single
 // turn -- see the TranscriptEntry comment in lib/league.ts for the full

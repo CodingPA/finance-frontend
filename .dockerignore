@@ -1,0 +1,23 @@
+# Keep the build context minimal and -- more importantly -- keep local secrets
+# out of it. Vite reads .env.local during `npm run build`, so a stray env file
+# copied into the image would bake its values straight into the shipped bundle.
+.env
+.env.*
+!.env.example
+
+node_modules
+dist
+dist-ssr
+
+.git
+.gitignore
+.gitattributes
+.claude
+screenshots
+*.tsbuildinfo
+*.patch
+npm-debug.log*
+
+# The container serves via deploy/nginx.container.conf.template; the rest of
+# deploy/ is the maintainer's bare-metal setup and has no business in an image.
+deploy.sh

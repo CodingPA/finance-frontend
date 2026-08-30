@@ -1,10 +1,74 @@
 # finance-frontend
 
-Vite + React + TypeScript SPA for The Lab. Talks to the Django backend
-described in `docs/api-endpoints.md` and `docs/authentication.md` (email/password
-and Google auth, JWT access + refresh).
+Vite + React + TypeScript SPA for The Lab. Email/password and Google auth
+against a separate Django backend (JWT access + refresh).
+
+> This is a personal research tool. The paper trading league it displays
+> simulates trades against live market prices -- it places **no real orders**,
+> connects to no brokerage execution venue, and holds no real positions or
+> money. Nothing produced by this software or the AI agents whose output it
+> renders is investment advice or a recommendation to buy or sell any
+> security. It ships with no warranty; see [LICENSE](LICENSE). Use at your own
+> risk.
+
+**This is the frontend only.** It needs the backend running to do anything past
+the login screen — see [finance-backend](../finance-backend) for its setup. The
+two are separate repos with separate deploys, so nothing here builds or starts
+the backend for you.
+
+## Run it with Docker
+
+```
+docker compose up --build
+```
+
+Then open <http://localhost:8080>.
+
+nginx inside the container serves the built bundle and forwards `/api` and
+`/ws` to the backend, which keeps CORS out of the picture. It expects the
+backend on `http://host.docker.internal:8001` — i.e. the backend's own
+`docker compose` publishing port 8001 on your host. Override if it's elsewhere:
+
+```
+BACKEND_URL=http://192.168.1.20:8001 docker compose up --build
+```
+
+That's a runtime setting; repointing it is a restart, not a rebuild. If the
+backend's compose only exposes 8001 on an internal Docker network rather than
+publishing it to the host, `host.docker.internal` won't reach it and you'll
+need to put both containers on a shared external network instead.
+
+**Google sign-in** is optional and off by default. Enabling it means a rebuild,
+because Vite inlines `VITE_*` vars into the bundle at build time:
+
+```
+VITE_GOOGLE_CLIENT_ID=<your-client-id> docker compose up --build
+```
+
+`FRONTEND_PORT` (default `8080`) changes the published port.
+
+## Run it without Docker
+
+```
+npm install
+cp .env.example .env.local   # fill in VITE_GOOGLE_CLIENT_ID if testing Google sign-in
+npm run dev
+```
+
+The dev server proxies `/api/*` and `/ws/*` to `http://localhost:8001` (see
+`vite.config.ts`) — same relative-path convention as the container. Run the
+backend on port 8001 separately.
+
+`npm run build` produces static output in `dist/`; `npm run lint` is
+`tsc --noEmit`.
 
 ## Stack notes
+
+- **Backend docs are in the other repo.** Source comments cite paths like
+  `finance-backend/docs/league-api.md` and
+  `finance-backend/docs/authentication.md` — those are relative to
+  [finance-backend](../finance-backend), not to this repo. `docs/` here holds
+  only specs written *for* the backend from the frontend's side.
 
 - **SPA, not SSR.** The auth model keeps the access token in memory and the
   refresh token in `localStorage` — that only works client-side, so Next.js
@@ -16,47 +80,63 @@ and Google auth, JWT access + refresh).
   rather than inventing new ones; `src/styles/app.css` holds only page-layout
   rules that aren't part of the design system itself.
 
-## Getting started
-
-```
-npm install
-cp .env.example .env.local   # fill in VITE_GOOGLE_CLIENT_ID if testing Google sign-in
-npm run dev
-```
-
-The dev server proxies `/api/*` to `http://localhost:8001` (see
-`vite.config.ts`), matching the relative-path calls shown in the backend
-docs. Run the Django backend on port 8001 separately.
-
 ## Auth
 
-`src/lib/api.ts` implements the token flow from `docs/authentication.md`:
-register/login/google all return `{access, refresh, user}`; `access` stays
-in memory, `refresh` goes to `localStorage` and is overwritten on every
-rotation. `apiFetch` retries once on a 401 via silent refresh.
-`src/context/AuthContext.tsx` wraps that in React state and hydrates on app
-load (refresh -> `/api/auth/me/`).
+`src/lib/api.ts` implements the backend's token flow: register/login/google all
+return `{access, refresh, user}`; `access` stays in memory, `refresh` goes to
+`localStorage` and is overwritten on every rotation. `apiFetch` retries once on
+a 401 via silent refresh. `src/context/AuthContext.tsx` wraps that in React
+state and hydrates on app load (refresh -> `/api/auth/me/`).
 
-**Google sign-in** is wired but untested — it needs `VITE_GOOGLE_CLIENT_ID`
-set here and the matching `GOOGLE_OAUTH_CLIENT_ID` set on the backend. With
-no client ID configured, the Google button just doesn't render.
+**Google sign-in** is wired but untested end-to-end — it needs
+`VITE_GOOGLE_CLIENT_ID` set here and the matching `GOOGLE_OAUTH_CLIENT_ID` set
+on the backend. With no client ID configured, the Google button just doesn't
+render.
 
-## Deployment
+## Status
 
-`finance.codingpa.com`, served straight off the Vite build's `dist/` output
--- there's no Node process for the frontend to keep alive, so pm2 isn't
-involved here (it's still what runs the Django backend, unaffected by any
-of this). nginx serves `dist/` directly and reverse-proxies `/api` and
-`/ws` to the backend on the same box (`localhost:8001`, reachable
-separately at `finance-api.codingpa.com`) -- the same relative-path
-convention `vite.config.ts`'s dev proxy uses, so the production build needs
-no `VITE_API_BASE_URL` override. Deploys are manual: SSH in and run
-`deploy.sh`.
+Email/password login, registration, logout, session persistence, and a
+protected route wrapper are in place. Not yet built: Google sign-in
+end-to-end verification (needs a real client ID), and everything past the
+auth shell (The Lab's screen/rank/deep-dive workflow).
+
+## License
+
+Copyright 2026 CodingPA LLC.
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the
+full text and [NOTICE](NOTICE) for the attribution notice that travels with
+redistributions — same terms as
+[finance-backend](../finance-backend), chosen for the explicit patent grant and
+for making contributions inbound-licensed without a separate CLA.
+
+The License covers this source code only, not any data displayed through it —
+see "Data sources and their terms" in finance-backend's README.
+
+---
+
+## How the maintainer's instance is deployed
+
+Everything below is specific to `finance.codingpa.com` and isn't needed to run
+your own copy — the Docker path above is self-contained. It's kept here as a
+worked example of a bare-metal deploy.
+
+`deploy.sh` and `deploy/nginx.conf` are that setup, not user-facing entry
+points: `deploy.sh` hard-resets the checkout to `origin/main`, and
+`deploy/nginx.conf` hardcodes a domain, a deploy user's home directory and
+certbot paths. The container uses a separate generic config
+(`deploy/nginx.container.conf.template`); the two aren't interchangeable.
+
+The site is served straight off the Vite build's `dist/` output — there's no
+Node process for the frontend to keep alive, so pm2 isn't involved (it's still
+what runs the Django backend). nginx serves `dist/` and reverse-proxies `/api`
+and `/ws` to the backend on the same box (`localhost:8001`). Deploys are
+manual: SSH in and run `deploy.sh`.
 
 ### One-time server setup
 
-1. **Deploy key** (the GitHub repo is private, so the server needs its own
-   read-only key rather than your personal credentials):
+1. **Deploy key** (so the server has its own read-only credentials rather than
+   a personal account's):
    ```
    ssh-keygen -t ed25519 -C "finance-frontend-deploy" -f ~/.ssh/finance-frontend-deploy -N ""
    cat ~/.ssh/finance-frontend-deploy.pub
@@ -95,7 +175,7 @@ no `VITE_API_BASE_URL` override. Deploys are manual: SSH in and run
    proxying.
 
 4. **nginx site** -- copy `deploy/nginx.conf` in (fix the `root` path first
-   if the deploy user's home directory isn't `/home/deploy`):
+   if the deploy user's home directory isn't `/home/deployer`):
    ```
    sudo ln -s ~/finance-frontend/deploy/nginx.conf /etc/nginx/sites-available/finance.codingpa.com
    sudo ln -s /etc/nginx/sites-available/finance.codingpa.com /etc/nginx/sites-enabled/
@@ -130,10 +210,3 @@ it's live.
 `git reset --hard <sha> && npm ci && npm run build` on the server (the
 same steps `deploy.sh` runs, just pinned to an older commit instead of
 `origin/main`).
-
-## Status
-
-Email/password login, registration, logout, session persistence, and a
-protected route wrapper are in place. Not yet built: Google sign-in
-end-to-end verification (needs a real client ID), and everything past the
-auth shell (The Lab's screen/rank/deep-dive workflow).

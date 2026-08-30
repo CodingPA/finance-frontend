@@ -1,4 +1,4 @@
-// Client for the paper trading league (`league` app, docs/league-api.md):
+// Client for the paper trading league (`league` app, finance-backend/docs/league-api.md):
 // Competition -> Competitor -> Position/Trade. Decimal fields (cash_balance,
 // account_value, fill_price, etc.) come back as strings, not JSON numbers --
 // parse with Number() at render time rather than trusting float precision
@@ -15,7 +15,7 @@ export type WakeupStatus = "scheduled" | "completed" | "failed";
 export type TurnTrigger = "scheduled_wakeup" | "manual" | "forced_checkin";
 
 // "" on a filled trade, or on a rejected trade predating this field
-// (docs/league-api.md: excluded from GET .../scoreboard/'s rejected_trades
+// (finance-backend/docs/league-api.md: excluded from GET .../scoreboard/'s rejected_trades
 // breakdown rather than folded into a misleading bucket).
 export type RejectionCode =
   | "price_limit"
@@ -76,7 +76,7 @@ export interface ScoreboardCompetitor {
 }
 
 /** Competition-wide rejected-trade counts by rejection_code, most-common
- *  first (docs/league-api.md) -- excludes trades rejected before
+ *  first (finance-backend/docs/league-api.md) -- excludes trades rejected before
  *  rejection_code existed rather than folding them into a misleading
  *  bucket, so this undercounts a competition's full rejection history. */
 export interface RejectedTradesBreakdown {
@@ -176,7 +176,7 @@ export interface CompetitorDetail {
 /** Unrealized P/L for one open position, in dollars. avg_cost is per-share
  *  (stock) or per-contract (options, the premium) -- multiply by
  *  quantity * 100 for the total dollar cost/credit, same convention
- *  docs/league-api.md uses. A long position's avg_cost was paid out (a
+ *  finance-backend/docs/league-api.md uses. A long position's avg_cost was paid out (a
  *  debit); a short leg's was received upfront (a credit) -- netting that in
  *  with the opposite sign against current_value (already sign-aware: a
  *  negative liability for a short leg) gives the right answer for both. */
@@ -369,7 +369,7 @@ export async function getScoreboard(competitionId: number): Promise<Scoreboard> 
 /** Force a live re-quote of every open position in the competition. Async --
  *  this only confirms the job was queued; the actual refreshed scoreboard
  *  arrives as a `league.scoreboard_refreshed` event on
- *  ws/league/{competitionId}/ (docs/league-api.md's "Live competition
+ *  ws/league/{competitionId}/ (finance-backend/docs/league-api.md's "Live competition
  *  feed"), not in this response. */
 export async function refreshCompetition(competitionId: number): Promise<{ status: string; competition_id: number }> {
   const res = await apiFetch(`/league/competitions/${competitionId}/refresh/`, { method: "POST" });
@@ -514,7 +514,7 @@ export interface EquityCurvePoint {
 
 /** One entry per competitor in the competition, always -- a competitor
  *  with no snapshots yet gets `points: []`, not an absent entry
- *  (docs/league-api.md). Snapshots only run during market hours, so
+ *  (finance-backend/docs/league-api.md). Snapshots only run during market hours, so
  *  there are gaps overnight/on weekends -- connect across them rather
  *  than treating them as missing data. No historical backfill: a
  *  competitor's series starts at whenever the snapshot job first ran

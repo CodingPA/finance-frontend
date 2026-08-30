@@ -102,7 +102,7 @@ auth shell (The Lab's screen/rank/deep-dive workflow).
 
 ## License
 
-Copyright 2026 CodingPA LLC.
+Copyright 2026 George Cann CodingPA LLC.
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the
 full text and [NOTICE](NOTICE) for the attribution notice that travels with

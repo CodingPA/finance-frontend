@@ -1,4 +1,4 @@
-// Backend auth client. Implements the token model from docs/authentication.md:
+// Backend auth client. Implements the token model from finance-backend/docs/authentication.md:
 // access token in memory only, refresh token in localStorage, rotated on
 // every refresh call. See that doc for the reasoning.
 

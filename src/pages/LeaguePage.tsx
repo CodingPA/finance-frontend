@@ -1,5 +1,5 @@
-// Medium-Term Paper Trading League (docs/paper-trading-league-rules.md,
-// docs/league-api.md): George vs. Claude, backend-enforced rules engine.
+// Medium-Term Paper Trading League (finance-backend/docs/paper-trading-league-rules.md,
+// finance-backend/docs/league-api.md): George vs. Claude, backend-enforced rules engine.
 // Only one competition is seeded today, so this page skips a competition
 // picker and just loads the first one -- add a picker later if a second
 // competition ever gets created.
@@ -146,7 +146,7 @@ function computeDayInfo(startDate: string, endDate: string): { dayNum: number; t
 // A refresh() POST only confirms the job was queued -- if the
 // league.scoreboard_refreshed push doesn't land within this window (socket
 // down, Redis hiccup), fall back to a plain re-GET instead of spinning
-// forever (docs/league-api.md's "Building the manual-refresh button").
+// forever (finance-backend/docs/league-api.md's "Building the manual-refresh button").
 const REFRESH_FALLBACK_MS = 15_000;
 
 const WAKE_ALL_MAX = 10;
@@ -227,7 +227,7 @@ export function LeaguePage() {
   }, []);
 
   // Forced check-in slots are the same 3-daily-floor rows for every
-  // competitor in a competition (docs/league-api.md), so the first AI
+  // competitor in a competition (finance-backend/docs/league-api.md), so the first AI
   // competitor's own next-wakeups view is enough to drive the
   // competition-wide "next forced check-in" footer stat.
   const firstAiCompetitorId = competitors.find((c) => c.kind === "ai")?.id ?? null;
@@ -280,7 +280,7 @@ export function LeaguePage() {
     };
   }, [competition, topTab, sinceFilter, untilFilter, kindFilter]);
 
-  // One socket per competition page (docs/league-api.md's "Live competition
+  // One socket per competition page (finance-backend/docs/league-api.md's "Live competition
   // feed") for everything it carries: the trade feed, and the manual-refresh
   // button's league.scoreboard_refreshed reply. Live feed connects as soon
   // as the competition is known, independent of which tab is active, so

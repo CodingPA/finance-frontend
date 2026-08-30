@@ -1,4 +1,4 @@
-// Dedicated per-competitor dashboard (docs/league-api.md): full position/trade
+// Dedicated per-competitor dashboard (finance-backend/docs/league-api.md): full position/trade
 // history plus, for AI competitors, the current scratchpad snapshot and a
 // "daily log" of every wake-up's full transcript. The scratchpad is the
 // agent's latest thinking (what its next wake-up starts from); the daily log
@@ -46,7 +46,7 @@ import {
 // A refresh() POST only confirms the job was queued -- if the
 // league.competitor_refreshed push doesn't land within this window (socket
 // down, Redis hiccup), fall back to a plain re-fetch instead of spinning
-// forever (docs/league-api.md's "Building the manual-refresh button").
+// forever (finance-backend/docs/league-api.md's "Building the manual-refresh button").
 const REFRESH_FALLBACK_MS = 15_000;
 
 // Trades don't carry per-trade realized P/L or a close reason (target_price/
@@ -193,7 +193,7 @@ export function CompetitorDashboardPage() {
     });
   }, [competitorId]);
 
-  // league.competitor_refreshed (docs/league-api.md's "Live competition
+  // league.competitor_refreshed (finance-backend/docs/league-api.md's "Live competition
   // feed") -- the manual-refresh button's reply. Its payload omits
   // `positions`, so rather than patch fields in place, bump refreshSignal to
   // pull a full getCompetitor() through the effect above -- that's the only

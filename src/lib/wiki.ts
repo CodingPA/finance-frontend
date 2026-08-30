@@ -1,4 +1,4 @@
-// Client for the wiki-monitoring endpoints (Phase 8, docs/roadmap.md): link a
+// Client for the wiki-monitoring endpoints (Phase 8, finance-backend/docs/roadmap.md): link a
 // Wikipedia page to a tracked company, and a daily job rechecks it, keeping a
 // `wiki`-sourced ResearchClip in sync when the content actually changes.
 // Auth-required, scoped to the logged-in user's own TrackedCompany row.

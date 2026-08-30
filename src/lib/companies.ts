@@ -138,7 +138,7 @@ export async function getCompanyReport(ticker: string): Promise<CompanyReport> {
  *  enqueued (`202`) -- not once it's finished. Pass 0 to force a full
  *  refresh. The outcome arrives later over the realtime socket as
  *  `screen.progress` then exactly one of `screen.complete` / `screen.error`
- *  for this ticker (see lib/ws.ts and docs/websockets.md); this call only
+ *  for this ticker (see lib/ws.ts and finance-backend/docs/websockets.md); this call only
  *  reports whether the ticker was accepted for screening. */
 export async function screenCompany(ticker: string, maxAgeDays?: number): Promise<void> {
   const res = await apiFetch(`/companies/${encodeURIComponent(ticker)}/screen/`, {

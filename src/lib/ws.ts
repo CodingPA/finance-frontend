@@ -1,4 +1,4 @@
-// Realtime client for docs/websockets.md. One socket per logged-in user,
+// Realtime client for finance-backend/docs/websockets.md. One socket per logged-in user,
 // carrying `type`-tagged JSON events (e.g. `screen.progress`). The backend
 // only checks the token at connect time, so reconnects need a fresh one --
 // this refreshes before retrying whenever the server closes with 4001
@@ -150,7 +150,7 @@ type LeagueFeedHandler = (message: LeagueFeedMessage) => void;
  *  `realtime`. Unlike /ws/user/, events here are unwrapped -- `type` is the
  *  event name directly ("league.trade", "league.competitor_refreshed",
  *  "league.scoreboard_refreshed") -- and nothing is redelivered on
- *  reconnect (docs/league-api.md's "Live competition feed" table), so a
+ *  reconnect (finance-backend/docs/league-api.md's "Live competition feed" table), so a
  *  page relying on this for anything but a live nudge should reconcile
  *  against a REST GET too. */
 export class LeagueFeedSocket {

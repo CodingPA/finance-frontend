@@ -1,0 +1,26 @@
+# Frontend only. The backend lives in its own repo with its own compose file
+# and its own production deploy -- reaching across repos here (a relative
+# `build: ../finance-backend`) would model a topology that exists nowhere else
+# in this project and would break for anyone who cloned only this repo. Start
+# the backend separately, then point BACKEND_URL at it.
+
+services:
+  frontend:
+    build:
+      context: .
+      args:
+        # Optional. Blank means the Google sign-in button doesn't render.
+        # Build-time only -- changing it needs `up --build`.
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    environment:
+      # Where nginx forwards /api and /ws. Runtime value: repointing it is a
+      # restart, not a rebuild. The default assumes the backend publishes 8001
+      # on the host.
+      BACKEND_URL: ${BACKEND_URL:-http://host.docker.internal:8001}
+    extra_hosts:
+      # Docker Desktop provides host.docker.internal already; Linux needs this
+      # line to resolve it. Harmless on both.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped

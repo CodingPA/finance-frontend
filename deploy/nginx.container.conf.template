@@ -1,0 +1,51 @@
+# nginx config for the Docker image (see Dockerfile). Generic on purpose: no
+# domain, no TLS, no host paths -- TLS is the job of whatever sits in front of
+# the container. deploy/nginx.conf is the separate, host-specific config used
+# for the maintainer's bare-metal deploy; the two are not interchangeable.
+#
+# ${BACKEND_URL} is substituted by nginx:alpine's entrypoint at container start,
+# so the backend's address is a runtime setting -- no rebuild to repoint it.
+
+server {
+    listen 80;
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # The app calls relative paths (/api/auth/login/, /ws/user/) and nginx
+    # forwards them, which is what keeps CORS out of the picture -- the same
+    # convention vite.config.ts's dev proxy follows.
+    location /api/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location /ws/ {
+        proxy_pass ${BACKEND_URL};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # Vite's hashed filenames are content-addressed, so a new build always ships
+    # new names and long caching is safe.
+    location ~* \.(?:js|css|png|jpg|jpeg|gif|svg|ico|woff2?)$ {
+        expires 30d;
+        access_log off;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # React Router owns client-side routes like /league/competitors/7, so every
+    # unmatched path falls through to index.html rather than 404ing.
+    location / {
+        try_files $uri /index.html;
+    }
+}

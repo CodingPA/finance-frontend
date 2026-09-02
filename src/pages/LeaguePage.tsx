@@ -21,9 +21,11 @@ import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import { AddCompetitorModal } from "../components/AddCompetitorModal";
 import { CompetitorAvatar } from "../components/CompetitorAvatar";
+import { BudgetBars } from "../components/BudgetBars";
 import { EquityChart, type EquityChartSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
 import {
+  cancelTrade,
   competitorColor,
   getCompetitor,
   getEquityCurve,
@@ -41,6 +43,8 @@ import {
   refreshCompetition,
   triggerWakeup,
   REJECTION_CODE_LABELS,
+  TRADE_STATUS_LABELS,
+  tradeStatusTagClass,
   TURN_TRIGGER_LABELS,
   type Competition,
   type CompetitionTrade,
@@ -178,6 +182,8 @@ export function LeaguePage() {
   const [sinceFilter, setSinceFilter] = useState("");
   const [untilFilter, setUntilFilter] = useState("");
   const [kindFilter, setKindFilter] = useState<CompetitorKind | "">("");
+  const [cancelingTradeId, setCancelingTradeId] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const [refreshingScoreboard, setRefreshingScoreboard] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -285,18 +291,30 @@ export function LeaguePage() {
   // button's league.scoreboard_refreshed reply. Live feed connects as soon
   // as the competition is known, independent of which tab is active, so
   // trades already loaded stay current even while looking at Positions.
-  // league.trade only prepends once the Trades tab has actually fetched a
-  // base list (trades !== null) -- until then a live push adds nothing,
-  // since opening the tab will pull it fresh from the REST call above
-  // anyway. since/until aren't re-checked against a push because a push
-  // always represents "now", which satisfies any realistic date range.
+  // league.trade only touches the list once the Trades tab has actually
+  // fetched a base one (trades !== null) -- until then a live push adds
+  // nothing, since opening the tab will pull it fresh from the REST call
+  // above anyway. since/until aren't re-checked against a push because a
+  // push always represents "now", which satisfies any realistic date range.
+  // A pending order and its later resolution share the same trade id rather
+  // than arriving as separate rows, so this upserts by id instead of always
+  // prepending -- otherwise a pending->filled/rejected push would show up as
+  // a duplicate second row still stuck on "queued".
   useEffect(() => {
     if (!competition) return;
     const socket = new LeagueFeedSocket(competition.id);
 
     const offTrade = socket.on("league.trade", (msg) => {
       if (kindFilterRef.current && msg.competitor_kind !== kindFilterRef.current) return;
-      setTrades((prev) => (prev ? [msg as unknown as CompetitionTrade, ...prev] : prev));
+      const trade = msg as unknown as CompetitionTrade;
+      setTrades((prev) => {
+        if (!prev) return prev;
+        const idx = prev.findIndex((t) => t.id === trade.id);
+        if (idx === -1) return [trade, ...prev];
+        const next = [...prev];
+        next[idx] = trade;
+        return next;
+      });
     });
 
     const offRefresh = socket.on("league.scoreboard_refreshed", (msg) => {
@@ -322,6 +340,24 @@ export function LeaguePage() {
   const handleJoined = (competitor: CompetitorSummary) => {
     setCompetitors((prev) => [...prev, competitor]);
     if (competition) loadCompetitionData(competition.id).catch(() => {});
+  };
+
+  // Both outcomes (a clean cancel, or losing the race against the resolver)
+  // come back as the same full Trade row -- upsert it in place either way,
+  // no follow-up fetch needed (see cancelTrade()'s comment in lib/league.ts).
+  const handleCancelTrade = async (competitorId: number, tradeId: number) => {
+    setCancelError(null);
+    setCancelingTradeId(tradeId);
+    try {
+      const updated = await cancelTrade(competitorId, tradeId);
+      setTrades((prev) =>
+        prev ? prev.map((t) => (t.id === updated.id ? { ...t, ...updated } : t)) : prev,
+      );
+    } catch (err) {
+      setCancelError(extractGenericMessage(err, "Couldn't cancel that order."));
+    } finally {
+      setCancelingTradeId(null);
+    }
   };
 
   const handleRefreshScoreboard = async () => {
@@ -704,8 +740,19 @@ export function LeaguePage() {
                           <td data-label="Qty">{t.quantity}</td>
                           <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
                           <td data-label="Status">
-                            <span className={`tag ${t.status === "filled" ? "tag-accent" : "tag-neutral"}`}>{t.status}</span>
+                            <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
                             {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
+                            {t.status === "pending" && <div className="card-meta">Fills at next open</div>}
+                            {t.status === "pending" && t.competitor_kind === "human" && (
+                              <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => handleCancelTrade(t.competitor_id, t.id)}
+                                disabled={cancelingTradeId === t.id}
+                              >
+                                {cancelingTradeId === t.id ? "Cancelling…" : "Cancel"}
+                              </button>
+                            )}
                           </td>
                           <td data-label="Thesis">{t.thesis}</td>
                         </tr>
@@ -714,6 +761,7 @@ export function LeaguePage() {
                   </table>
                 </div>
               )}
+              {cancelError && <p className="form-error">{cancelError}</p>}
             </div>
           )}
 
@@ -762,6 +810,8 @@ function CompetitorPanel({
   const [tradeModalOpen, setTradeModalOpen] = useState(false);
   const [openTurnId, setOpenTurnId] = useState<number | null>(null);
   const [waking, setWaking] = useState(false);
+  const [cancelingTradeId, setCancelingTradeId] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -794,6 +844,22 @@ function CompetitorPanel({
     }
   };
 
+  // Both outcomes (a clean cancel, or losing the race against the resolver)
+  // come back as the same full Trade row -- upsert it in place either way,
+  // no follow-up fetch needed (see cancelTrade()'s comment in lib/league.ts).
+  const handleCancelTrade = async (tradeId: number) => {
+    setCancelError(null);
+    setCancelingTradeId(tradeId);
+    try {
+      const updated = await cancelTrade(summary.id, tradeId);
+      setTrades((prev) => (prev ? prev.map((t) => (t.id === updated.id ? updated : t)) : prev));
+    } catch (err) {
+      setCancelError(extractGenericMessage(err, "Couldn't cancel that order."));
+    } finally {
+      setCancelingTradeId(null);
+    }
+  };
+
   return (
     <div className="card elev-sm stack">
       <div className="page-head">
@@ -816,6 +882,16 @@ function CompetitorPanel({
           Collapse
         </button>
       </div>
+
+      {summary.kind === "ai" && (
+        <BudgetBars
+          totalBudgetUsd={summary.total_budget_usd}
+          weeklyBudgetUsd={summary.weekly_budget_usd}
+          apiCostUsd={summary.api_cost_usd}
+          weekSpentUsd={summary.week_spent_usd}
+          todaySpentUsd={summary.today_spent_usd}
+        />
+      )}
 
       {summary.kind === "ai" && nextWakeups && (nextWakeups.forced_checkins.length > 0 || nextWakeups.self_scheduled.length > 0) && (
         <div className="page-head">
@@ -938,8 +1014,19 @@ function CompetitorPanel({
                     <td data-label="Qty">{t.quantity}</td>
                     <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
                     <td data-label="Status">
-                      <span className={`tag ${t.status === "filled" ? "tag-accent" : "tag-neutral"}`}>{t.status}</span>
+                      <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
                       {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
+                      {t.status === "pending" && <div className="card-meta">Fills at next open</div>}
+                      {t.status === "pending" && summary.kind === "human" && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary"
+                          onClick={() => handleCancelTrade(t.id)}
+                          disabled={cancelingTradeId === t.id}
+                        >
+                          {cancelingTradeId === t.id ? "Cancelling…" : "Cancel"}
+                        </button>
+                      )}
                     </td>
                     <td data-label="Thesis">{t.thesis}</td>
                   </tr>
@@ -947,6 +1034,7 @@ function CompetitorPanel({
               </tbody>
             </table>
           )}
+          {cancelError && <p className="form-error">{cancelError}</p>}
         </div>
       )}
 

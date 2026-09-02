@@ -173,6 +173,44 @@
   border-right: none;
 }
 
+.budget-bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.budget-bar-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.budget-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-neutral-200);
+  overflow: hidden;
+}
+
+.budget-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--color-accent);
+}
+
+.budget-bar-fill-full {
+  background: var(--color-negative);
+}
+
+.budget-bar-fill-pace {
+  background: var(--color-neutral-500);
+}
+
+.budget-bar-today {
+  font-size: 12px;
+}
+
 .competitor-layout {
   display: grid;
   grid-template-columns: 2fr 1fr;

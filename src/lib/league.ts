@@ -10,7 +10,35 @@ export type CompetitorKind = "ai" | "human";
 export type ModelProvider = "anthropic" | "openai" | "gemini";
 export type InstrumentType = "stock" | "call" | "put";
 export type TradeSide = "buy" | "sell" | "sell_to_open" | "buy_to_close";
-export type TradeStatus = "filled" | "rejected";
+// "pending" only occurs for a competition with restrict_after_hours_trading
+// turned on (opt-in, most competitions don't) -- the order was accepted
+// while the market's closed and is queued to resolve at the next open.
+// "cancelled" is a human pulling their own still-pending order via
+// cancelTrade() before it resolves -- cheap and safe, since a pending order
+// never touched cash/positions in the first place. Same trade id transitions
+// pending -> filled, pending -> rejected, or pending -> cancelled in place;
+// it is never replaced by a new row, so anything merging a league.trade push
+// into a trade list must update by id rather than assume every push is a
+// new trade.
+export type TradeStatus = "pending" | "filled" | "rejected" | "cancelled";
+
+export const TRADE_STATUS_LABELS: Record<TradeStatus, string> = {
+  pending: "queued",
+  filled: "filled",
+  rejected: "rejected",
+  cancelled: "cancelled",
+};
+
+/** Tag styling for a trade's status -- pending gets its own outline variant
+ *  rather than sharing rejected's neutral tag, since it's neither a success
+ *  nor a failure, just deferred to the next market open. Cancelled shares
+ *  rejected's neutral tag -- both are "this order didn't happen", just for
+ *  different reasons. */
+export function tradeStatusTagClass(status: TradeStatus): string {
+  if (status === "filled") return "tag-accent";
+  if (status === "pending") return "tag-outline";
+  return "tag-neutral";
+}
 export type WakeupStatus = "scheduled" | "completed" | "failed";
 export type TurnTrigger = "scheduled_wakeup" | "manual" | "forced_checkin";
 
@@ -62,6 +90,19 @@ export interface Competition {
 // filled_trades_count/api_cost_usd/last_woke_at: null/0 for a competitor
 // that's never filled a trade or woken -- always true for a human
 // competitor, and for an AI that hasn't run yet.
+//
+// Budget fields (AI competitors only -- absent entirely, not null, on a
+// human row, same convention as CompetitorSummary's assistant_model/
+// system_prompt): total_budget_usd/weekly_budget_usd are operator-set caps,
+// null meaning "not configured" rather than zero or unlimited-but-tracked.
+// total_budget_usd is a hard cap checked between wake-ups (not mid-call),
+// so api_cost_usd can end up slightly over it before the pause takes
+// effect -- clamp a progress bar at 100% rather than treating that as an
+// error. weekly_budget_usd is advisory only (nothing is enforced against
+// it), for the current Mon 00:00 ET -> next Mon 00:00 ET trading week.
+// week_spent_usd/today_spent_usd are plain spend telemetry -- real numbers
+// (or "0") for any AI competitor that's made at least one call, independent
+// of whether a budget is configured at all.
 export interface ScoreboardCompetitor {
   id: number;
   name: string;
@@ -73,6 +114,10 @@ export interface ScoreboardCompetitor {
   filled_trades_count: number;
   api_cost_usd: string | null;
   last_woke_at: string | null;
+  total_budget_usd?: string | null;
+  weekly_budget_usd?: string | null;
+  week_spent_usd?: string | null;
+  today_spent_usd?: string | null;
 }
 
 /** Competition-wide rejected-trade counts by rejection_code, most-common
@@ -102,6 +147,11 @@ export interface CompetitorSummary {
   filled_trades_count: number;
   api_cost_usd: string | null;
   last_woke_at: string | null;
+  // Budget fields (AI competitors only) -- see ScoreboardCompetitor's comment.
+  total_budget_usd?: string | null;
+  weekly_budget_usd?: string | null;
+  week_spent_usd?: string | null;
+  today_spent_usd?: string | null;
   user_email?: string;
   assistant_model?: string;
   system_prompt?: string;
@@ -112,6 +162,17 @@ export interface CompetitorSummary {
   // these rather than checking truthiness inline.
   color?: string;
   avatar?: string;
+}
+
+/** spent / limit as a 0-100 percent, clamped -- null limit (not configured)
+ *  or null spent both mean "nothing to show", not 0%, since the hard-cap
+ *  check runs between wake-ups rather than mid-call and can leave spend
+ *  slightly over limit (a few cents) before the pause takes effect. */
+export function budgetProgressPct(spent: string | null | undefined, limit: string | null | undefined): number | null {
+  if (limit === null || limit === undefined || spent === null || spent === undefined) return null;
+  const limitNum = Number(limit);
+  if (!(limitNum > 0)) return null;
+  return Math.min(100, Math.max(0, (Number(spent) / limitNum) * 100));
 }
 
 export const DEFAULT_COMPETITOR_COLOR = "var(--color-neutral-400)";
@@ -166,6 +227,11 @@ export interface CompetitorDetail {
   total_return_pct: string;
   assistant_model?: string;
   system_prompt?: string;
+  // Budget fields (AI competitors only) -- see ScoreboardCompetitor's comment.
+  total_budget_usd?: string | null;
+  weekly_budget_usd?: string | null;
+  week_spent_usd?: string | null;
+  today_spent_usd?: string | null;
   // Oldest priced_at among the positions shown -- i.e. the least-fresh
   // number actually contributing to this response, not the newest. Null if
   // every position is on the avg_cost fallback (or there are no positions).
@@ -194,6 +260,10 @@ export function pnlClass(pnl: number): string {
   return "";
 }
 
+// fill_price/rejection_reason are both null/"" while status is "pending" --
+// they only populate once the order actually resolves at the next open.
+// They stay null/"" on a "cancelled" trade too -- a cancel never resolves
+// the order, it just pulls it before that can happen.
 export interface Trade {
   id: number;
   side: TradeSide;
@@ -453,15 +523,33 @@ export async function listCompetitionTrades(
   return parseJsonOrThrow<CompetitionTrade[]>(res);
 }
 
-/** Both a fill (201) and a rules-engine rejection (400) return the same
- *  trade-row shape (`status`/`rejection_reason` carry the outcome) -- only a
- *  genuine validation error (missing/unparseable field) lacks a `status` and
- *  should surface as a thrown error instead. */
+/** A fill and a pending order (queued because restrict_after_hours_trading
+ *  is on and the market's closed) both return 201 now -- check body.status
+ *  rather than the HTTP status to tell them apart. A rules-engine rejection
+ *  (400) returns the same trade-row shape (`status`/`rejection_reason` carry
+ *  the outcome) -- only a genuine validation error (missing/unparseable
+ *  field) lacks a `status` and should surface as a thrown error instead. */
 export async function submitTrade(competitorId: number, trade: NewTrade): Promise<Trade> {
   const res = await apiFetch(`/league/competitors/${competitorId}/trades/`, {
     method: "POST",
     body: JSON.stringify(trade),
   });
+  const data = await res.json().catch(() => ({}));
+  if (data && typeof data === "object" && "status" in data) {
+    return data as Trade;
+  }
+  throw new ApiError(res.status, data);
+}
+
+/** Cancel a still-pending (queued-for-next-open) order. Same ownership rule
+ *  as trade submission -- only your own competitor's orders. A clean cancel
+ *  (200) and losing the race against the resolver (409 -- the order already
+ *  filled/rejected by the time this landed) both return the same full Trade
+ *  row shape, so callers can upsert whatever comes back by id without a
+ *  follow-up fetch either way: a 409 body's `status` is the order's real
+ *  outcome (filled/rejected), not a rejection of the cancel request itself. */
+export async function cancelTrade(competitorId: number, tradeId: number): Promise<Trade> {
+  const res = await apiFetch(`/league/competitors/${competitorId}/trades/${tradeId}/cancel/`, { method: "POST" });
   const data = await res.json().catch(() => ({}));
   if (data && typeof data === "object" && "status" in data) {
     return data as Trade;

@@ -3,6 +3,10 @@
 // error -- it's a normal 400 carrying a full trade row with `rejection_reason`
 // (the rules engine's human-readable explanation), rendered inline so the
 // user can see exactly why and adjust, same as a real broker's reject message.
+// A 201 can carry status "pending" (queued for the next market open, only
+// possible when the competition has restrict_after_hours_trading on) as well
+// as "filled" -- onFilled fires for both, since neither is a rejection; the
+// trade list it lands in is what shows the pending/queued state.
 
 import { useState, type FormEvent } from "react";
 import { Modal } from "./Modal";
@@ -72,10 +76,10 @@ export function TradeModal({
         ...(isOpening && deadPrice ? { dead_price: deadPrice } : {}),
       };
       const trade = await submitTrade(competitorId, body);
-      if (trade.status === "filled") {
-        onFilled(trade);
-      } else {
+      if (trade.status === "rejected") {
         setRejection(trade);
+      } else {
+        onFilled(trade);
       }
     } catch (err) {
       const fields = extractFieldErrors(err);

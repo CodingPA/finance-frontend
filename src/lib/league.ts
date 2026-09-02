@@ -13,21 +13,27 @@ export type TradeSide = "buy" | "sell" | "sell_to_open" | "buy_to_close";
 // "pending" only occurs for a competition with restrict_after_hours_trading
 // turned on (opt-in, most competitions don't) -- the order was accepted
 // while the market's closed and is queued to resolve at the next open.
-// Same trade id transitions pending -> filled or pending -> rejected in
-// place; it is never replaced by a new row, so anything merging a
-// league.trade push into a trade list must update by id rather than assume
-// every push is a new trade.
-export type TradeStatus = "pending" | "filled" | "rejected";
+// "cancelled" is a human pulling their own still-pending order via
+// cancelTrade() before it resolves -- cheap and safe, since a pending order
+// never touched cash/positions in the first place. Same trade id transitions
+// pending -> filled, pending -> rejected, or pending -> cancelled in place;
+// it is never replaced by a new row, so anything merging a league.trade push
+// into a trade list must update by id rather than assume every push is a
+// new trade.
+export type TradeStatus = "pending" | "filled" | "rejected" | "cancelled";
 
 export const TRADE_STATUS_LABELS: Record<TradeStatus, string> = {
   pending: "queued",
   filled: "filled",
   rejected: "rejected",
+  cancelled: "cancelled",
 };
 
 /** Tag styling for a trade's status -- pending gets its own outline variant
  *  rather than sharing rejected's neutral tag, since it's neither a success
- *  nor a failure, just deferred to the next market open. */
+ *  nor a failure, just deferred to the next market open. Cancelled shares
+ *  rejected's neutral tag -- both are "this order didn't happen", just for
+ *  different reasons. */
 export function tradeStatusTagClass(status: TradeStatus): string {
   if (status === "filled") return "tag-accent";
   if (status === "pending") return "tag-outline";
@@ -256,6 +262,8 @@ export function pnlClass(pnl: number): string {
 
 // fill_price/rejection_reason are both null/"" while status is "pending" --
 // they only populate once the order actually resolves at the next open.
+// They stay null/"" on a "cancelled" trade too -- a cancel never resolves
+// the order, it just pulls it before that can happen.
 export interface Trade {
   id: number;
   side: TradeSide;
@@ -526,6 +534,22 @@ export async function submitTrade(competitorId: number, trade: NewTrade): Promis
     method: "POST",
     body: JSON.stringify(trade),
   });
+  const data = await res.json().catch(() => ({}));
+  if (data && typeof data === "object" && "status" in data) {
+    return data as Trade;
+  }
+  throw new ApiError(res.status, data);
+}
+
+/** Cancel a still-pending (queued-for-next-open) order. Same ownership rule
+ *  as trade submission -- only your own competitor's orders. A clean cancel
+ *  (200) and losing the race against the resolver (409 -- the order already
+ *  filled/rejected by the time this landed) both return the same full Trade
+ *  row shape, so callers can upsert whatever comes back by id without a
+ *  follow-up fetch either way: a 409 body's `status` is the order's real
+ *  outcome (filled/rejected), not a rejection of the cancel request itself. */
+export async function cancelTrade(competitorId: number, tradeId: number): Promise<Trade> {
+  const res = await apiFetch(`/league/competitors/${competitorId}/trades/${tradeId}/cancel/`, { method: "POST" });
   const data = await res.json().catch(() => ({}));
   if (data && typeof data === "object" && "status" in data) {
     return data as Trade;

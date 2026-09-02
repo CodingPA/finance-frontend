@@ -18,6 +18,7 @@ import { TickerMemoryModal } from "../components/TickerMemoryModal";
 import { CompetitorAvatar } from "../components/CompetitorAvatar";
 import { BudgetBars } from "../components/BudgetBars";
 import {
+  cancelTrade,
   getCompetitor,
   getNextWakeups,
   getScoreboard,
@@ -58,6 +59,7 @@ const REFRESH_FALLBACK_MS = 15_000;
 function tradeResultLabel(t: Trade): string {
   if (t.status === "pending") return "queued";
   if (t.status === "rejected") return "rejected";
+  if (t.status === "cancelled") return "cancelled";
   return t.side === "sell" || t.side === "buy_to_close" ? "closed" : "open";
 }
 
@@ -104,6 +106,8 @@ export function CompetitorDashboardPage() {
   const [competitorSummary, setCompetitorSummary] = useState<CompetitorSummary | null>(null);
   const [mandateExpanded, setMandateExpanded] = useState(false);
   const [expandedTradeId, setExpandedTradeId] = useState<number | null>(null);
+  const [cancelingTradeId, setCancelingTradeId] = useState<number | null>(null);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   useEffect(() => {
     listModels()
@@ -232,6 +236,22 @@ export function CompetitorDashboardPage() {
       setError(extractGenericMessage(err, "Couldn't trigger a wake-up."));
     } finally {
       setWaking(false);
+    }
+  };
+
+  // Both outcomes (a clean cancel, or losing the race against the resolver)
+  // come back as the same full Trade row -- upsert it in place either way,
+  // no follow-up fetch needed (see cancelTrade()'s comment in lib/league.ts).
+  const handleCancelTrade = async (tradeId: number) => {
+    setCancelError(null);
+    setCancelingTradeId(tradeId);
+    try {
+      const updated = await cancelTrade(competitorId, tradeId);
+      setTrades((prev) => (prev ? prev.map((t) => (t.id === updated.id ? updated : t)) : prev));
+    } catch (err) {
+      setCancelError(extractGenericMessage(err, "Couldn't cancel that order."));
+    } finally {
+      setCancelingTradeId(null);
     }
   };
 
@@ -522,7 +542,25 @@ export function CompetitorDashboardPage() {
                                   <div className="card-kicker">Thesis</div>
                                   <p className="card-body">{t.thesis}</p>
                                   {t.status === "rejected" && <p className="form-error">{t.rejection_reason}</p>}
-                                  {t.status === "pending" && <p className="text-muted">Queued -- fills at the next market open.</p>}
+                                  {t.status === "pending" && (
+                                    <div className="page-head" style={{ marginBottom: 0 }}>
+                                      <p className="text-muted" style={{ margin: 0 }}>
+                                        Queued -- fills at the next market open.
+                                      </p>
+                                      {detail.kind === "human" && (
+                                        <button
+                                          type="button"
+                                          className="btn btn-secondary"
+                                          style={{ marginLeft: "auto" }}
+                                          onClick={() => handleCancelTrade(t.id)}
+                                          disabled={cancelingTradeId === t.id}
+                                        >
+                                          {cancelingTradeId === t.id ? "Cancelling…" : "Cancel order"}
+                                        </button>
+                                      )}
+                                    </div>
+                                  )}
+                                  {cancelError && expandedTradeId === t.id && <p className="form-error">{cancelError}</p>}
                                 </td>
                               </tr>
                             )}

@@ -42,6 +42,8 @@ import {
   refreshCompetition,
   triggerWakeup,
   REJECTION_CODE_LABELS,
+  TRADE_STATUS_LABELS,
+  tradeStatusTagClass,
   TURN_TRIGGER_LABELS,
   type Competition,
   type CompetitionTrade,
@@ -286,18 +288,30 @@ export function LeaguePage() {
   // button's league.scoreboard_refreshed reply. Live feed connects as soon
   // as the competition is known, independent of which tab is active, so
   // trades already loaded stay current even while looking at Positions.
-  // league.trade only prepends once the Trades tab has actually fetched a
-  // base list (trades !== null) -- until then a live push adds nothing,
-  // since opening the tab will pull it fresh from the REST call above
-  // anyway. since/until aren't re-checked against a push because a push
-  // always represents "now", which satisfies any realistic date range.
+  // league.trade only touches the list once the Trades tab has actually
+  // fetched a base one (trades !== null) -- until then a live push adds
+  // nothing, since opening the tab will pull it fresh from the REST call
+  // above anyway. since/until aren't re-checked against a push because a
+  // push always represents "now", which satisfies any realistic date range.
+  // A pending order and its later resolution share the same trade id rather
+  // than arriving as separate rows, so this upserts by id instead of always
+  // prepending -- otherwise a pending->filled/rejected push would show up as
+  // a duplicate second row still stuck on "queued".
   useEffect(() => {
     if (!competition) return;
     const socket = new LeagueFeedSocket(competition.id);
 
     const offTrade = socket.on("league.trade", (msg) => {
       if (kindFilterRef.current && msg.competitor_kind !== kindFilterRef.current) return;
-      setTrades((prev) => (prev ? [msg as unknown as CompetitionTrade, ...prev] : prev));
+      const trade = msg as unknown as CompetitionTrade;
+      setTrades((prev) => {
+        if (!prev) return prev;
+        const idx = prev.findIndex((t) => t.id === trade.id);
+        if (idx === -1) return [trade, ...prev];
+        const next = [...prev];
+        next[idx] = trade;
+        return next;
+      });
     });
 
     const offRefresh = socket.on("league.scoreboard_refreshed", (msg) => {
@@ -705,8 +719,9 @@ export function LeaguePage() {
                           <td data-label="Qty">{t.quantity}</td>
                           <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
                           <td data-label="Status">
-                            <span className={`tag ${t.status === "filled" ? "tag-accent" : "tag-neutral"}`}>{t.status}</span>
+                            <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
                             {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
+                            {t.status === "pending" && <div className="card-meta">Fills at next open</div>}
                           </td>
                           <td data-label="Thesis">{t.thesis}</td>
                         </tr>
@@ -949,8 +964,9 @@ function CompetitorPanel({
                     <td data-label="Qty">{t.quantity}</td>
                     <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
                     <td data-label="Status">
-                      <span className={`tag ${t.status === "filled" ? "tag-accent" : "tag-neutral"}`}>{t.status}</span>
+                      <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
                       {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
+                      {t.status === "pending" && <div className="card-meta">Fills at next open</div>}
                     </td>
                     <td data-label="Thesis">{t.thesis}</td>
                   </tr>

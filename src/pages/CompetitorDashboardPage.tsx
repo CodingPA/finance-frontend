@@ -56,6 +56,7 @@ const REFRESH_FALLBACK_MS = 15_000;
 // on a position it already holds) -- this derives open/closed/rejected from
 // side + status instead of fabricating a dollar result.
 function tradeResultLabel(t: Trade): string {
+  if (t.status === "pending") return "queued";
   if (t.status === "rejected") return "rejected";
   return t.side === "sell" || t.side === "buy_to_close" ? "closed" : "open";
 }
@@ -510,7 +511,8 @@ export function CompetitorDashboardPage() {
                               <td data-label="Limit" className="text-muted">
                                 {t.limit_price ? formatPrice(Number(t.limit_price)) : "—"}
                               </td>
-                              <td data-label="Result" className={t.status === "rejected" ? "text-muted" : undefined}>
+                              <td data-label="Result" className={t.status !== "filled" ? "text-muted" : undefined}>
+                                {t.status === "pending" && "\u{1F550} "}
                                 {tradeResultLabel(t)}
                               </td>
                             </tr>
@@ -520,6 +522,7 @@ export function CompetitorDashboardPage() {
                                   <div className="card-kicker">Thesis</div>
                                   <p className="card-body">{t.thesis}</p>
                                   {t.status === "rejected" && <p className="form-error">{t.rejection_reason}</p>}
+                                  {t.status === "pending" && <p className="text-muted">Queued -- fills at the next market open.</p>}
                                 </td>
                               </tr>
                             )}

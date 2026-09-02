@@ -10,7 +10,29 @@ export type CompetitorKind = "ai" | "human";
 export type ModelProvider = "anthropic" | "openai" | "gemini";
 export type InstrumentType = "stock" | "call" | "put";
 export type TradeSide = "buy" | "sell" | "sell_to_open" | "buy_to_close";
-export type TradeStatus = "filled" | "rejected";
+// "pending" only occurs for a competition with restrict_after_hours_trading
+// turned on (opt-in, most competitions don't) -- the order was accepted
+// while the market's closed and is queued to resolve at the next open.
+// Same trade id transitions pending -> filled or pending -> rejected in
+// place; it is never replaced by a new row, so anything merging a
+// league.trade push into a trade list must update by id rather than assume
+// every push is a new trade.
+export type TradeStatus = "pending" | "filled" | "rejected";
+
+export const TRADE_STATUS_LABELS: Record<TradeStatus, string> = {
+  pending: "queued",
+  filled: "filled",
+  rejected: "rejected",
+};
+
+/** Tag styling for a trade's status -- pending gets its own outline variant
+ *  rather than sharing rejected's neutral tag, since it's neither a success
+ *  nor a failure, just deferred to the next market open. */
+export function tradeStatusTagClass(status: TradeStatus): string {
+  if (status === "filled") return "tag-accent";
+  if (status === "pending") return "tag-outline";
+  return "tag-neutral";
+}
 export type WakeupStatus = "scheduled" | "completed" | "failed";
 export type TurnTrigger = "scheduled_wakeup" | "manual" | "forced_checkin";
 
@@ -232,6 +254,8 @@ export function pnlClass(pnl: number): string {
   return "";
 }
 
+// fill_price/rejection_reason are both null/"" while status is "pending" --
+// they only populate once the order actually resolves at the next open.
 export interface Trade {
   id: number;
   side: TradeSide;
@@ -491,10 +515,12 @@ export async function listCompetitionTrades(
   return parseJsonOrThrow<CompetitionTrade[]>(res);
 }
 
-/** Both a fill (201) and a rules-engine rejection (400) return the same
- *  trade-row shape (`status`/`rejection_reason` carry the outcome) -- only a
- *  genuine validation error (missing/unparseable field) lacks a `status` and
- *  should surface as a thrown error instead. */
+/** A fill and a pending order (queued because restrict_after_hours_trading
+ *  is on and the market's closed) both return 201 now -- check body.status
+ *  rather than the HTTP status to tell them apart. A rules-engine rejection
+ *  (400) returns the same trade-row shape (`status`/`rejection_reason` carry
+ *  the outcome) -- only a genuine validation error (missing/unparseable
+ *  field) lacks a `status` and should surface as a thrown error instead. */
 export async function submitTrade(competitorId: number, trade: NewTrade): Promise<Trade> {
   const res = await apiFetch(`/league/competitors/${competitorId}/trades/`, {
     method: "POST",

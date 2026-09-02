@@ -62,6 +62,19 @@ export interface Competition {
 // filled_trades_count/api_cost_usd/last_woke_at: null/0 for a competitor
 // that's never filled a trade or woken -- always true for a human
 // competitor, and for an AI that hasn't run yet.
+//
+// Budget fields (AI competitors only -- absent entirely, not null, on a
+// human row, same convention as CompetitorSummary's assistant_model/
+// system_prompt): total_budget_usd/weekly_budget_usd are operator-set caps,
+// null meaning "not configured" rather than zero or unlimited-but-tracked.
+// total_budget_usd is a hard cap checked between wake-ups (not mid-call),
+// so api_cost_usd can end up slightly over it before the pause takes
+// effect -- clamp a progress bar at 100% rather than treating that as an
+// error. weekly_budget_usd is advisory only (nothing is enforced against
+// it), for the current Mon 00:00 ET -> next Mon 00:00 ET trading week.
+// week_spent_usd/today_spent_usd are plain spend telemetry -- real numbers
+// (or "0") for any AI competitor that's made at least one call, independent
+// of whether a budget is configured at all.
 export interface ScoreboardCompetitor {
   id: number;
   name: string;
@@ -73,6 +86,10 @@ export interface ScoreboardCompetitor {
   filled_trades_count: number;
   api_cost_usd: string | null;
   last_woke_at: string | null;
+  total_budget_usd?: string | null;
+  weekly_budget_usd?: string | null;
+  week_spent_usd?: string | null;
+  today_spent_usd?: string | null;
 }
 
 /** Competition-wide rejected-trade counts by rejection_code, most-common
@@ -102,6 +119,11 @@ export interface CompetitorSummary {
   filled_trades_count: number;
   api_cost_usd: string | null;
   last_woke_at: string | null;
+  // Budget fields (AI competitors only) -- see ScoreboardCompetitor's comment.
+  total_budget_usd?: string | null;
+  weekly_budget_usd?: string | null;
+  week_spent_usd?: string | null;
+  today_spent_usd?: string | null;
   user_email?: string;
   assistant_model?: string;
   system_prompt?: string;
@@ -112,6 +134,17 @@ export interface CompetitorSummary {
   // these rather than checking truthiness inline.
   color?: string;
   avatar?: string;
+}
+
+/** spent / limit as a 0-100 percent, clamped -- null limit (not configured)
+ *  or null spent both mean "nothing to show", not 0%, since the hard-cap
+ *  check runs between wake-ups rather than mid-call and can leave spend
+ *  slightly over limit (a few cents) before the pause takes effect. */
+export function budgetProgressPct(spent: string | null | undefined, limit: string | null | undefined): number | null {
+  if (limit === null || limit === undefined || spent === null || spent === undefined) return null;
+  const limitNum = Number(limit);
+  if (!(limitNum > 0)) return null;
+  return Math.min(100, Math.max(0, (Number(spent) / limitNum) * 100));
 }
 
 export const DEFAULT_COMPETITOR_COLOR = "var(--color-neutral-400)";
@@ -166,6 +199,11 @@ export interface CompetitorDetail {
   total_return_pct: string;
   assistant_model?: string;
   system_prompt?: string;
+  // Budget fields (AI competitors only) -- see ScoreboardCompetitor's comment.
+  total_budget_usd?: string | null;
+  weekly_budget_usd?: string | null;
+  week_spent_usd?: string | null;
+  today_spent_usd?: string | null;
   // Oldest priced_at among the positions shown -- i.e. the least-fresh
   // number actually contributing to this response, not the newest. Null if
   // every position is on the avg_cost fallback (or there are no positions).

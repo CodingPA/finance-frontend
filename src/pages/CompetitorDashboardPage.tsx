@@ -16,6 +16,7 @@ import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import { TickerMemoryModal } from "../components/TickerMemoryModal";
 import { CompetitorAvatar } from "../components/CompetitorAvatar";
+import { BudgetBars } from "../components/BudgetBars";
 import {
   getCompetitor,
   getNextWakeups,
@@ -562,6 +563,16 @@ export function CompetitorDashboardPage() {
             </div>
 
             <div className="stack">
+              {detail.kind === "ai" && (
+                <BudgetBars
+                  totalBudgetUsd={detail.total_budget_usd}
+                  weeklyBudgetUsd={detail.weekly_budget_usd}
+                  apiCostUsd={apiCost !== null ? String(apiCost) : null}
+                  weekSpentUsd={detail.week_spent_usd}
+                  todaySpentUsd={detail.today_spent_usd}
+                />
+              )}
+
               {detail.kind === "ai" && nextWakeups && (nextWakeups.forced_checkins.length > 0 || nextWakeups.self_scheduled.length > 0) && (
                 <div className="card elev-sm stack">
                   <div className="card-title">Wake schedule</div>

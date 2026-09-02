@@ -21,6 +21,7 @@ import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import { AddCompetitorModal } from "../components/AddCompetitorModal";
 import { CompetitorAvatar } from "../components/CompetitorAvatar";
+import { BudgetBars } from "../components/BudgetBars";
 import { EquityChart, type EquityChartSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
 import {
@@ -816,6 +817,16 @@ function CompetitorPanel({
           Collapse
         </button>
       </div>
+
+      {summary.kind === "ai" && (
+        <BudgetBars
+          totalBudgetUsd={summary.total_budget_usd}
+          weeklyBudgetUsd={summary.weekly_budget_usd}
+          apiCostUsd={summary.api_cost_usd}
+          weekSpentUsd={summary.week_spent_usd}
+          todaySpentUsd={summary.today_spent_usd}
+        />
+      )}
 
       {summary.kind === "ai" && nextWakeups && (nextWakeups.forced_checkins.length > 0 || nextWakeups.self_scheduled.length > 0) && (
         <div className="page-head">

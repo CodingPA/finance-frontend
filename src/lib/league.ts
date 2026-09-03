@@ -260,6 +260,35 @@ export function pnlClass(pnl: number): string {
   return "";
 }
 
+/** Prefill for TradeModal's "close this position" flow (the Sell/Buy-to-close
+ *  button on an open positions table). */
+export interface TradePrefill {
+  ticker: string;
+  side: TradeSide;
+  instrumentType: InstrumentType;
+  quantity: number;
+  strike?: string;
+  expiration?: string;
+}
+
+/** side is "buy_to_close" for a short leg (e.g. the short side of a covered
+ *  call/cash-covered put), "sell" for a normal long position -- closing is
+ *  never "sell_to_open" or a fresh "buy". strike drops Position's padded
+ *  decimal zeros ("150.0000" -> "150") since NewTrade's strike is a bare
+ *  string, and expiration is trimmed to a date-only YYYY-MM-DD in case the
+ *  backend ever sends a fuller ISO timestamp -- the date <input> needs
+ *  exactly that shape to prefill. */
+export function positionToTradePrefill(position: Position): TradePrefill {
+  return {
+    ticker: position.ticker,
+    side: position.is_short ? "buy_to_close" : "sell",
+    instrumentType: position.instrument_type,
+    quantity: position.quantity,
+    strike: position.strike ? String(Number(position.strike)) : undefined,
+    expiration: position.expiration ? position.expiration.slice(0, 10) : undefined,
+  };
+}
+
 // fill_price/rejection_reason are both null/"" while status is "pending" --
 // they only populate once the order actually resolves at the next open.
 // They stay null/"" on a "cancelled" trade too -- a cancel never resolves

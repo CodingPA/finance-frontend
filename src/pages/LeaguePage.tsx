@@ -40,6 +40,7 @@ import {
   listTurns,
   pnlClass,
   positionPnl,
+  positionToTradePrefill,
   refreshCompetition,
   triggerWakeup,
   REJECTION_CODE_LABELS,
@@ -55,6 +56,7 @@ import {
   type ForcedCheckin,
   type LeagueModel,
   type NextWakeups,
+  type Position,
   type Scoreboard,
   type Scratchpad,
   type Trade,
@@ -807,7 +809,9 @@ function CompetitorPanel({
   const [nextWakeups, setNextWakeups] = useState<NextWakeups | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [tradeModalOpen, setTradeModalOpen] = useState(false);
+  // "new" for the header's New trade button, a Position for the Sell/Buy-to-
+  // close button on an open positions row (prefills the modal to close it).
+  const [tradeModalTarget, setTradeModalTarget] = useState<"new" | Position | null>(null);
   const [openTurnId, setOpenTurnId] = useState<number | null>(null);
   const [waking, setWaking] = useState(false);
   const [cancelingTradeId, setCancelingTradeId] = useState<number | null>(null);
@@ -869,7 +873,7 @@ function CompetitorPanel({
         </h3>
         {summary.assistant_model && <span className="tag tag-neutral">{summary.assistant_model}</span>}
         {summary.kind === "human" && (
-          <button type="button" className="btn btn-primary" onClick={() => setTradeModalOpen(true)}>
+          <button type="button" className="btn btn-primary" onClick={() => setTradeModalTarget("new")}>
             New trade
           </button>
         )}
@@ -945,6 +949,7 @@ function CompetitorPanel({
                   <th>Current price</th>
                   <th>Avg cost</th>
                   <th>Opened</th>
+                  {summary.kind === "human" && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -956,6 +961,7 @@ function CompetitorPanel({
                     Cash
                   </td>
                   <td></td>
+                  {summary.kind === "human" && <td></td>}
                 </tr>
                 {detail.positions.map((p, i) => {
                   const pnl = positionPnl(p);
@@ -977,6 +983,13 @@ function CompetitorPanel({
                       </td>
                       <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
                       <td data-label="Opened">{formatDateTime(p.opened_at)}</td>
+                      {summary.kind === "human" && (
+                        <td data-label="Actions">
+                          <button type="button" className="btn btn-secondary" onClick={() => setTradeModalTarget(p)}>
+                            {p.is_short ? "Buy to close" : "Sell"}
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -1081,13 +1094,14 @@ function CompetitorPanel({
         </div>
       )}
 
-      {tradeModalOpen && (
+      {tradeModalTarget && (
         <TradeModal
           competitorId={summary.id}
-          onClose={() => setTradeModalOpen(false)}
+          prefill={tradeModalTarget !== "new" ? positionToTradePrefill(tradeModalTarget) : undefined}
+          onClose={() => setTradeModalTarget(null)}
           onFilled={(trade) => {
             setTrades((prev) => [trade, ...(prev ?? [])]);
-            setTradeModalOpen(false);
+            setTradeModalTarget(null);
             onTradeFilled();
           }}
         />

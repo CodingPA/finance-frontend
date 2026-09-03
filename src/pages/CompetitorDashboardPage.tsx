@@ -10,7 +10,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
-import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatTime, formatUsd } from "../lib/format";
+import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatTime, formatUsd, parseDateOnly } from "../lib/format";
 import { Markdown } from "../components/Markdown";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
@@ -31,6 +31,7 @@ import {
   listTurns,
   pnlClass,
   positionPnl,
+  positionToTradePrefill,
   refreshCompetitor,
   triggerWakeup,
   TURN_TRIGGER_LABELS,
@@ -38,6 +39,7 @@ import {
   type CompetitorSummary,
   type LeagueModel,
   type NextWakeups,
+  type Position,
   type Scoreboard,
   type Scratchpad,
   type TickerMemory,
@@ -65,7 +67,7 @@ function tradeResultLabel(t: Trade): string {
 
 function formatShortDate(value: string | null | undefined): string {
   if (!value) return "";
-  const date = new Date(value);
+  const date = parseDateOnly(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
@@ -87,7 +89,9 @@ export function CompetitorDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshSignal, setRefreshSignal] = useState(0);
 
-  const [tradeModalOpen, setTradeModalOpen] = useState(false);
+  // "new" for the header's New trade button, a Position for the Sell/Buy-to-
+  // close button on an open positions row (prefills the modal to close it).
+  const [tradeModalTarget, setTradeModalTarget] = useState<"new" | Position | null>(null);
   const [openTurnId, setOpenTurnId] = useState<number | null>(null);
   const [waking, setWaking] = useState(false);
 
@@ -300,7 +304,7 @@ export function CompetitorDashboardPage() {
     new Set(
       (detail?.positions ?? [])
         .filter((p) => p.expiration)
-        .map((p) => Math.max(0, Math.ceil((new Date(p.expiration as string).getTime() - Date.now()) / 86_400_000))),
+        .map((p) => Math.max(0, Math.ceil((parseDateOnly(p.expiration as string).getTime() - Date.now()) / 86_400_000))),
     ),
   );
   const dteSummary = optionDtes.length === 1 ? `, all ${optionDtes[0]}DTE` : optionDtes.length > 1 ? ", mixed DTE" : "";
@@ -342,7 +346,7 @@ export function CompetitorDashboardPage() {
                   {refreshing ? "Refreshing…" : "Refresh prices"}
                 </button>
                 {detail.kind === "human" && (
-                  <button type="button" className="btn btn-primary" onClick={() => setTradeModalOpen(true)}>
+                  <button type="button" className="btn btn-primary" onClick={() => setTradeModalTarget("new")}>
                     New trade
                   </button>
                 )}
@@ -438,6 +442,7 @@ export function CompetitorDashboardPage() {
                         <th>Mark</th>
                         <th>Unrealized</th>
                         <th>Target / dead</th>
+                        {detail.kind === "human" && <th>Actions</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -451,6 +456,7 @@ export function CompetitorDashboardPage() {
                         <td data-label="Mark">—</td>
                         <td data-label="Unrealized">{formatUsd(cashBalance)}</td>
                         <td data-label="Target / dead"></td>
+                        {detail.kind === "human" && <td data-label="Actions"></td>}
                       </tr>
                       {detail.positions.map((p, i) => {
                         const pnl = positionPnl(p);
@@ -480,6 +486,13 @@ export function CompetitorDashboardPage() {
                               {p.target_price ? formatPrice(Number(p.target_price)) : "—"} /{" "}
                               {p.dead_price ? formatPrice(Number(p.dead_price)) : "—"}
                             </td>
+                            {detail.kind === "human" && (
+                              <td data-label="Actions">
+                                <button type="button" className="btn btn-secondary" onClick={() => setTradeModalTarget(p)}>
+                                  {p.is_short ? "Buy to close" : "Sell"}
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -714,13 +727,14 @@ export function CompetitorDashboardPage() {
         </>
       )}
 
-      {detail && tradeModalOpen && (
+      {detail && tradeModalTarget && (
         <TradeModal
           competitorId={detail.id}
-          onClose={() => setTradeModalOpen(false)}
+          prefill={tradeModalTarget !== "new" ? positionToTradePrefill(tradeModalTarget) : undefined}
+          onClose={() => setTradeModalTarget(null)}
           onFilled={(trade) => {
             setTrades((prev) => [trade, ...(prev ?? [])]);
-            setTradeModalOpen(false);
+            setTradeModalTarget(null);
             setRefreshSignal((k) => k + 1);
           }}
         />

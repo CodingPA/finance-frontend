@@ -10,7 +10,14 @@
 
 import { useState, type FormEvent } from "react";
 import { Modal } from "./Modal";
-import { submitTrade, type InstrumentType, type NewTrade, type Trade, type TradeSide } from "../lib/league";
+import {
+  submitTrade,
+  type InstrumentType,
+  type NewTrade,
+  type Trade,
+  type TradePrefill,
+  type TradeSide,
+} from "../lib/league";
 import { extractFieldErrors, extractGenericMessage, type FieldErrors } from "../lib/formErrors";
 
 const SIDE_OPTIONS: { value: TradeSide; label: string }[] = [
@@ -28,19 +35,24 @@ const INSTRUMENT_OPTIONS: { value: InstrumentType; label: string }[] = [
 
 export function TradeModal({
   competitorId,
+  prefill,
   onClose,
   onFilled,
 }: {
   competitorId: number;
+  /** Pre-fills the form to close an existing position (the Sell/Buy-to-close
+   *  button on an open positions table) -- everything stays editable, this
+   *  just saves re-typing what the position already tells us. */
+  prefill?: TradePrefill;
   onClose: () => void;
   onFilled: (trade: Trade) => void;
 }) {
-  const [ticker, setTicker] = useState("");
-  const [side, setSide] = useState<TradeSide>("buy");
-  const [instrumentType, setInstrumentType] = useState<InstrumentType>("stock");
-  const [quantity, setQuantity] = useState("");
-  const [strike, setStrike] = useState("");
-  const [expiration, setExpiration] = useState("");
+  const [ticker, setTicker] = useState(prefill?.ticker ?? "");
+  const [side, setSide] = useState<TradeSide>(prefill?.side ?? "buy");
+  const [instrumentType, setInstrumentType] = useState<InstrumentType>(prefill?.instrumentType ?? "stock");
+  const [quantity, setQuantity] = useState(prefill ? String(prefill.quantity) : "");
+  const [strike, setStrike] = useState(prefill?.strike ?? "");
+  const [expiration, setExpiration] = useState(prefill?.expiration ?? "");
   const [limitPrice, setLimitPrice] = useState("");
   const [targetPrice, setTargetPrice] = useState("");
   const [deadPrice, setDeadPrice] = useState("");
@@ -94,7 +106,7 @@ export function TradeModal({
   };
 
   return (
-    <Modal title="New trade" onClose={onClose}>
+    <Modal title={prefill ? `Close ${prefill.ticker}` : "New trade"} onClose={onClose} wide>
       <form className="stack" onSubmit={handleSubmit}>
         <div className="field">
           <label htmlFor="trade-ticker">Ticker</label>

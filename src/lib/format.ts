@@ -72,9 +72,21 @@ export function formatShares(value: number | null | undefined): string {
   return value.toLocaleString();
 }
 
+/** `new Date("2026-09-30")` parses a bare "YYYY-MM-DD" string as UTC
+ *  midnight, not local midnight -- the browser then renders that instant in
+ *  the reader's own timezone, which rolls the displayed date back by one
+ *  everywhere west of UTC (a 9/30 expiration briefly reads "Sep 29" for a US
+ *  reader). Appending a local-midnight time-of-day before parsing sidesteps
+ *  that; a value that already carries its own time/offset (a real instant,
+ *  not a plain calendar date) is left to `new Date` as-is, since local
+ *  display is already correct for those. */
+export function parseDateOnly(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value);
+}
+
 export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
-  const date = new Date(value);
+  const date = parseDateOnly(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 }

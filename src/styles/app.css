@@ -796,6 +796,35 @@
   background: color-mix(in srgb, var(--color-accent) 8%, transparent);
 }
 
+.league-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.league-header-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* Trade/Prices/Wake-up/Add-competitor need to fit on one line on a phone
+   width -- shorter labels (set in LeaguePage.tsx via isMobile) plus tighter
+   padding here, and the icon-only buttons (Wake up all, Add competitor)
+   already go small via .btn-icon-sm. */
+@media (max-width: 768px) {
+  .league-header-actions {
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+
+  .league-header-actions .btn:not(.btn-icon-sm) {
+    padding: 6px 10px;
+    font-size: 13px;
+  }
+}
+
 .league-topline {
   display: flex;
   align-items: baseline;

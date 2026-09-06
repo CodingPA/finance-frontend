@@ -8,6 +8,7 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatTime, formatUsd, parseDateOnly } from "../lib/format";
@@ -76,6 +77,7 @@ export function CompetitorDashboardPage() {
   const { id } = useParams();
   const competitorId = Number(id);
   const navigate = useNavigate();
+  const isMobile = useIsMobile();
 
   const [detail, setDetail] = useState<CompetitorDetail | null>(null);
   const [trades, setTrades] = useState<Trade[] | null>(null);
@@ -93,6 +95,7 @@ export function CompetitorDashboardPage() {
   // close button on an open positions row (prefills the modal to close it).
   const [tradeModalTarget, setTradeModalTarget] = useState<"new" | Position | null>(null);
   const [openTurnId, setOpenTurnId] = useState<number | null>(null);
+  const [expandedTurnId, setExpandedTurnId] = useState<number | null>(null);
   const [waking, setWaking] = useState(false);
 
   const [competitionId, setCompetitionId] = useState<number | null>(null);
@@ -431,31 +434,33 @@ export function CompetitorDashboardPage() {
                     </span>
                   )}
                 </div>
-                <div className="table-wrap stack-mobile">
+                <div className="table-wrap table-scroll">
                   <table className="table">
                     <thead>
                       <tr>
                         <th>Ticker</th>
-                        <th>Instrument</th>
+                        {!isMobile && <th>Instrument</th>}
                         <th>Qty</th>
                         <th>Avg cost</th>
                         <th>Mark</th>
                         <th>Unrealized</th>
-                        <th>Target / dead</th>
+                        {!isMobile && <th>Target / dead</th>}
                         {detail.kind === "human" && <th>Actions</th>}
                       </tr>
                     </thead>
                     <tbody>
                       <tr>
                         <td data-label="Ticker">SPAXX</td>
-                        <td data-label="Instrument" className="text-muted">
-                          Cash
-                        </td>
+                        {!isMobile && (
+                          <td data-label="Instrument" className="text-muted">
+                            Cash
+                          </td>
+                        )}
                         <td data-label="Qty">—</td>
                         <td data-label="Avg cost">—</td>
                         <td data-label="Mark">—</td>
                         <td data-label="Unrealized">{formatUsd(cashBalance)}</td>
-                        <td data-label="Target / dead"></td>
+                        {!isMobile && <td data-label="Target / dead"></td>}
                         {detail.kind === "human" && <td data-label="Actions"></td>}
                       </tr>
                       {detail.positions.map((p, i) => {
@@ -464,12 +469,15 @@ export function CompetitorDashboardPage() {
                           <tr key={i}>
                             <td data-label="Ticker">
                               <strong>{p.ticker}</strong>
+                              {isMobile && p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
                             </td>
-                            <td data-label="Instrument">
-                              {p.instrument_type}
-                              {p.strike && ` $${p.strike} exp ${formatShortDate(p.expiration)}`}
-                              {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
-                            </td>
+                            {!isMobile && (
+                              <td data-label="Instrument">
+                                {p.instrument_type}
+                                {p.strike && ` $${p.strike} exp ${formatShortDate(p.expiration)}`}
+                                {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
+                              </td>
+                            )}
                             <td data-label="Qty">{p.quantity}</td>
                             <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
                             <td
@@ -482,10 +490,12 @@ export function CompetitorDashboardPage() {
                             <td data-label="Unrealized" className={pnlClass(pnl)}>
                               {formatSignedUsd(pnl)}
                             </td>
-                            <td data-label="Target / dead" className="text-muted">
-                              {p.target_price ? formatPrice(Number(p.target_price)) : "—"} /{" "}
-                              {p.dead_price ? formatPrice(Number(p.dead_price)) : "—"}
-                            </td>
+                            {!isMobile && (
+                              <td data-label="Target / dead" className="text-muted">
+                                {p.target_price ? formatPrice(Number(p.target_price)) : "—"} /{" "}
+                                {p.dead_price ? formatPrice(Number(p.dead_price)) : "—"}
+                              </td>
+                            )}
                             {detail.kind === "human" && (
                               <td data-label="Actions">
                                 <button type="button" className="btn btn-secondary" onClick={() => setTradeModalTarget(p)}>
@@ -509,7 +519,7 @@ export function CompetitorDashboardPage() {
                     Every fill carries a thesis — click a row to read it.
                   </span>
                 </div>
-                <div className="table-wrap stack-mobile trade-log-scroll">
+                <div className="table-wrap table-scroll trade-log-scroll">
                   {!trades && <p className="text-muted">Loading…</p>}
                   {trades && trades.length === 0 && <p className="text-muted">No trades yet.</p>}
                   {trades && trades.length > 0 && (
@@ -698,7 +708,57 @@ export function CompetitorDashboardPage() {
               </p>
               {!turns && <p className="text-muted">Loading…</p>}
               {turns && turns.length === 0 && <p className="text-muted">No wake-ups yet.</p>}
-              {turns && turns.length > 0 && (
+              {turns && turns.length > 0 && isMobile && (
+                <div className="league-mobile-list">
+                  {turns.map((t) => {
+                    const expanded = t.id === expandedTurnId;
+                    return (
+                      <div className="league-mobile-item" key={t.id}>
+                        <div
+                          className="league-mobile-row"
+                          onClick={() => setExpandedTurnId((prev) => (prev === t.id ? null : t.id))}
+                          style={{ cursor: "pointer" }}
+                        >
+                          <svg
+                            className={`league-mobile-chevron${expanded ? " is-open" : ""}`}
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M6 9l6 6 6-6" />
+                          </svg>
+                          <span className="league-mobile-name">{formatDateTime(t.created_at)}</span>
+                        </div>
+                        {expanded && (
+                          <div className="league-mobile-expand">
+                            <ul className="league-mobile-positions">
+                              <li className="league-mobile-position-row">
+                                <span className="league-mobile-position-ticker">Trigger</span>
+                                <span className="league-mobile-position-value">{TURN_TRIGGER_LABELS[t.trigger]}</span>
+                              </li>
+                              <li className="league-mobile-position-row">
+                                <span className="league-mobile-position-ticker">Tools used</span>
+                                <span className="league-mobile-position-value">
+                                  {t.tool_calls.length > 0 ? t.tool_calls.join(", ") : "—"}
+                                </span>
+                              </li>
+                              <li className="league-mobile-position-row">
+                                <span className="league-mobile-position-ticker">Cost</span>
+                                <span className="league-mobile-position-value">${t.cost_usd}</span>
+                              </li>
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {turns && turns.length > 0 && !isMobile && (
                 <div className="table-wrap stack-mobile">
                   <table className="table">
                     <thead>

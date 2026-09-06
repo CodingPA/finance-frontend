@@ -6,6 +6,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useIsMobile } from "../hooks/useIsMobile";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import {
@@ -163,6 +164,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 export function LeaguePage() {
+  const isMobile = useIsMobile();
   const [competition, setCompetition] = useState<Competition | null>(null);
   const [scoreboard, setScoreboard] = useState<Scoreboard | null>(null);
   const [competitors, setCompetitors] = useState<CompetitorSummary[]>([]);
@@ -186,6 +188,7 @@ export function LeaguePage() {
   const [kindFilter, setKindFilter] = useState<CompetitorKind | "">("");
   const [cancelingTradeId, setCancelingTradeId] = useState<number | null>(null);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [expandedTradeId, setExpandedTradeId] = useState<number | null>(null);
 
   const [refreshingScoreboard, setRefreshingScoreboard] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -589,8 +592,60 @@ export function LeaguePage() {
             </label>
           </div>
 
-          {topTab === "positions" && scoreboard && (
-            <div className="table-wrap stack-mobile">
+          {topTab === "positions" && scoreboard && isMobile && (
+            <div className="league-mobile-list">
+              {scoreboard.competitors.map((c) => {
+                const summary = competitors.find((comp) => comp.id === c.id) ?? null;
+                const expanded = c.id === selectedId;
+                return (
+                  <div className="league-mobile-item" key={c.id}>
+                    <div
+                      className="league-mobile-row"
+                      onClick={() => setSelectedId((prev) => (prev === c.id ? null : c.id))}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <svg
+                        className={`league-mobile-chevron${expanded ? " is-open" : ""}`}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                      <span className="league-mobile-name">
+                        <CompetitorAvatar color={summary?.color} avatar={summary?.avatar} size={20} />
+                        {c.name}
+                      </span>
+                      <span className="league-mobile-value">{formatUsd(Number(c.account_value))}</span>
+                      <Link
+                        to={`/league/competitors/${c.id}`}
+                        className="btn btn-secondary btn-icon-sm league-mobile-goto"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`Open ${c.name}'s dashboard`}
+                        title="Open competitor dashboard"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M9 6l6 6-6 6" />
+                        </svg>
+                      </Link>
+                    </div>
+                    {expanded && (
+                      <div className="league-mobile-expand">
+                        <MobilePositionsPanel competitorId={c.id} refreshSignal={refreshSignal} />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {topTab === "positions" && scoreboard && !isMobile && (
+            <div className="table-wrap table-scroll">
               <table className="table">
                 <thead>
                   <tr>
@@ -710,7 +765,99 @@ export function LeaguePage() {
               {tradesError && <p className="form-error">{tradesError}</p>}
               {tradesLoading && !trades && <p className="text-muted">Loading trades…</p>}
               {trades && trades.length === 0 && <p className="text-muted">No trades in this range.</p>}
-              {trades && trades.length > 0 && (
+
+              {trades && trades.length > 0 && isMobile && (
+                <div className="league-mobile-list">
+                  {trades.map((t) => {
+                    const expanded = t.id === expandedTradeId;
+                    return (
+                      <div className="league-mobile-item" key={t.id}>
+                        <div
+                          className="league-mobile-row"
+                          onClick={() => setExpandedTradeId((prev) => (prev === t.id ? null : t.id))}
+                          style={{ cursor: "pointer" }}
+                        >
+                          <svg
+                            className={`league-mobile-chevron${expanded ? " is-open" : ""}`}
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M6 9l6 6 6-6" />
+                          </svg>
+                          <span className="league-mobile-name">
+                            {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
+                          </span>
+                          <span className={`tag ${tradeStatusTagClass(t.status)} league-mobile-value`}>
+                            {t.side.replace(/_/g, " ").toUpperCase()}
+                          </span>
+                        </div>
+                        {expanded && (
+                          <div className="league-mobile-expand">
+                            <ul className="league-mobile-positions">
+                              <li className="league-mobile-position-row">
+                                <span className="league-mobile-position-ticker">When</span>
+                                <span className="league-mobile-position-value">{formatDateTime(t.created_at)}</span>
+                              </li>
+                              <li className="league-mobile-position-row">
+                                <span className="league-mobile-position-ticker">Competitor</span>
+                                <span className="league-mobile-position-value">
+                                  {t.competitor_name}{" "}
+                                  <span className={`tag ${t.competitor_kind === "ai" ? "tag-outline" : "tag-accent"}`}>
+                                    {t.competitor_kind === "ai" ? "AI" : "YOU"}
+                                  </span>
+                                </span>
+                              </li>
+                              <li className="league-mobile-position-row">
+                                <span className="league-mobile-position-ticker">Qty</span>
+                                <span className="league-mobile-position-value">{t.quantity}</span>
+                              </li>
+                              <li className="league-mobile-position-row">
+                                <span className="league-mobile-position-ticker">Fill</span>
+                                <span className="league-mobile-position-value">
+                                  {t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}
+                                </span>
+                              </li>
+                              <li className="league-mobile-position-row">
+                                <span className="league-mobile-position-ticker">Status</span>
+                                <span className="league-mobile-position-value">
+                                  <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
+                                </span>
+                              </li>
+                            </ul>
+                            {t.status === "rejected" && <p className="card-meta">{t.rejection_reason}</p>}
+                            {t.status === "pending" && (
+                              <div className="league-mobile-pending-actions">
+                                <span className="text-muted">Fills at next open</span>
+                                {t.competitor_kind === "human" && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-secondary"
+                                    onClick={() => handleCancelTrade(t.competitor_id, t.id)}
+                                    disabled={cancelingTradeId === t.id}
+                                  >
+                                    {cancelingTradeId === t.id ? "Cancelling…" : "Cancel"}
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            <div className="card-kicker" style={{ marginTop: 8 }}>
+                              Thesis
+                            </div>
+                            <p className="card-body">{t.thesis}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {trades && trades.length > 0 && !isMobile && (
                 <div className="table-wrap stack-mobile">
                   <table className="table">
                     <thead>
@@ -781,6 +928,49 @@ export function LeaguePage() {
         </>
       )}
     </div>
+  );
+}
+
+// Mobile Positions tab: expanding a competitor here shows just their open
+// positions (no trades/reasoning tabs, no budget bars) -- a lighter fetch and
+// a much shorter render than CompetitorPanel, which the desktop table still uses.
+function MobilePositionsPanel({ competitorId, refreshSignal }: { competitorId: number; refreshSignal: number }) {
+  const [detail, setDetail] = useState<CompetitorDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setDetail(null);
+    setError(null);
+    getCompetitor(competitorId)
+      .then((d) => !cancelled && setDetail(d))
+      .catch((err) => !cancelled && setError(extractGenericMessage(err, "Couldn't load positions.")));
+    return () => {
+      cancelled = true;
+    };
+  }, [competitorId, refreshSignal]);
+
+  if (error) return <p className="form-error">{error}</p>;
+  if (!detail) return <p className="text-muted">Loading…</p>;
+  if (detail.positions.length === 0) return <p className="text-muted">No open positions.</p>;
+
+  return (
+    <ul className="league-mobile-positions">
+      {detail.positions.map((p, i) => {
+        const pnl = positionPnl(p);
+        return (
+          <li className="league-mobile-position-row" key={i}>
+            <span className="league-mobile-position-ticker">
+              {p.ticker}
+              {p.instrument_type !== "stock" && (
+                <span className="text-muted"> {p.instrument_type} ${p.strike}</span>
+              )}
+            </span>
+            <span className={`league-mobile-position-value ${pnlClass(pnl)}`}>{formatUsd(Number(p.current_value))}</span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -934,7 +1124,7 @@ function CompetitorPanel({
       </div>
 
       {tab === "positions" && (
-        <div className="table-wrap stack-mobile">
+        <div className="table-wrap table-scroll">
           {!detail && <p className="text-muted">Loading…</p>}
           {detail && detail.positions.length === 0 && <p className="text-muted">No open positions.</p>}
           {detail && (

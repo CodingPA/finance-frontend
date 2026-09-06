@@ -813,6 +813,108 @@
   cursor: default;
 }
 
+/* Mobile-only Positions tab (LeaguePage): a plain collapsible list instead
+   of the desktop scoreboard table -- name + account value collapsed, a
+   per-competitor positions list on expand. Rendered only when useIsMobile()
+   is true, so this doesn't need a matching @media guard. */
+.league-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.league-mobile-item {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.league-mobile-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.league-mobile-chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  transition: transform 0.15s ease;
+}
+
+.league-mobile-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.league-mobile-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.league-mobile-value {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.league-mobile-goto svg {
+  width: 16px;
+  height: 16px;
+}
+
+.league-mobile-expand {
+  padding: 0 var(--space-3) var(--space-3);
+  border-top: 1px solid var(--color-divider);
+}
+
+.league-mobile-positions {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+}
+
+.league-mobile-position-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.league-mobile-position-row:last-child {
+  border-bottom: none;
+}
+
+.league-mobile-position-ticker {
+  flex: none;
+}
+
+.league-mobile-position-value {
+  font-variant-numeric: tabular-nums;
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.league-mobile-pending-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
 .league-transcript-entry {
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--color-divider);
@@ -951,5 +1053,40 @@ details.league-transcript-tool > p {
     text-transform: uppercase;
     color: color-mix(in srgb, var(--color-text) 60%, transparent);
     margin-bottom: 2px;
+  }
+
+  /* Tables of comparable rows (leaderboard, open positions, trade log) read
+     better as a real table on mobile than as one card per row -- .table-scroll
+     keeps the grid so values line up across rows, scrolling horizontally
+     instead of stacking. The first column stays pinned as the anchor for
+     whichever row you're reading. A colSpan detail row (an expanded panel,
+     a thesis) opts out via .league-expanded-cell since it isn't tabular data
+     and shouldn't be squeezed onto one line or pinned in place. */
+  .table-wrap.table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-wrap.table-scroll table {
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .table-wrap.table-scroll th,
+  .table-wrap.table-scroll td {
+    white-space: nowrap;
+  }
+
+  .table-wrap.table-scroll th:first-child,
+  .table-wrap.table-scroll td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--color-surface);
+  }
+
+  .table-wrap.table-scroll td.league-expanded-cell {
+    white-space: normal;
+    position: static;
   }
 }

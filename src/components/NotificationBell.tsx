@@ -13,12 +13,32 @@ import { useEffect, useRef, useState } from "react";
 import { listNotifications, ackNotification, type Notification } from "../lib/notifications";
 import { formatDateTime } from "../lib/format";
 import { realtime } from "../lib/ws";
+import { useIsMobile } from "../hooks/useIsMobile";
 
 export function NotificationBell() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const isMobile = useIsMobile();
+  // On mobile the bell isn't necessarily near the screen's right edge (the
+  // nav also packs a theme toggle and logout button after it), so anchoring
+  // the dropdown's right edge to the bell's own right edge (the desktop
+  // behavior) can push most of a 300px-wide menu off the left side of a
+  // narrow viewport. Measuring the bell's actual position and switching to
+  // a viewport-relative fixed placement keeps it fully on screen instead.
+  const [menuTop, setMenuTop] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!open || !isMobile) return;
+    const updatePosition = () => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (rect) setMenuTop(rect.bottom + 6);
+    };
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    return () => window.removeEventListener("resize", updatePosition);
+  }, [open, isMobile]);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,7 +128,10 @@ export function NotificationBell() {
         Notifications{notifications.length > 0 ? ` (${notifications.length})` : ""}
       </button>
       {open && (
-        <div className="notif-menu elev-md">
+        <div
+          className={`notif-menu elev-md${isMobile ? " notif-menu-mobile" : ""}`}
+          style={isMobile && menuTop != null ? { top: menuTop } : undefined}
+        >
           {notifications.length > 0 && (
             <div className="page-head" style={{ marginBottom: 0 }}>
               <span className="card-kicker">Notifications</span>

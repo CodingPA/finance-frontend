@@ -10,7 +10,7 @@
 // action's id comes from a different table and isn't safe to key alongside
 // message ids.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useLocation } from "react-router-dom";
 import { Markdown } from "./Markdown";
 import { useAuth } from "../context/AuthContext";
@@ -65,6 +65,35 @@ function tickerFromPath(pathname: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+// Holding the FAB down (rather than an immediate drag on touch/pointerdown)
+// keeps a normal tap-to-open working -- only a press held past this delay
+// commits to a reposition instead. Persisted across reloads so a spot
+// you've dragged it to (out of the way of some page's own content) sticks.
+const FAB_LONG_PRESS_MS = 300;
+const FAB_DRAG_CANCEL_PX = 8;
+const FAB_POSITION_STORAGE_KEY = "chatFabPosition";
+const FAB_EDGE_MARGIN = 8;
+
+interface FabPosition {
+  left: number;
+  top: number;
+}
+
+function loadFabPosition(): FabPosition | null {
+  try {
+    const raw = localStorage.getItem(FAB_POSITION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.left === "number" && typeof parsed?.top === "number" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), Math.max(min, max));
+}
+
 export function ChatAssistant() {
   const { status } = useAuth();
   const location = useLocation();
@@ -92,6 +121,49 @@ export function ChatAssistant() {
   // Only auto-scroll while the user is already at (or near) the bottom --
   // otherwise every streamed token yanks them back down mid-read.
   const stickToBottomRef = useRef(true);
+
+  // Custom on-screen spot for the floating chat button, from a press-and-
+  // hold drag -- null means "use the default bottom-right corner" (the CSS
+  // .chat-fab position).
+  const [fabPosition, setFabPosition] = useState<FabPosition | null>(() => loadFabPosition());
+  const [fabDragging, setFabDragging] = useState(false);
+  // Suppresses the click that follows a completed drag -- a plain ref
+  // rather than state, since the browser's click event dispatches
+  // synchronously right after pointerup, ahead of whenever React would
+  // actually flush a state update.
+  const justDraggedRef = useRef(false);
+  const fabRef = useRef<HTMLButtonElement>(null);
+
+  // A position saved while the window was one size (e.g. a phone-width
+  // browser, or a resized/emulated viewport) can land off-screen -- or just
+  // somewhere unexpected -- once the window is a different size (a real
+  // desktop width). Re-clamp against the *current* viewport on mount and on
+  // resize so a saved spot never renders the button somewhere you can't see
+  // or reach it.
+  useEffect(() => {
+    if (open) return;
+    const clampToViewport = () => {
+      const btn = fabRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      setFabPosition((pos) => {
+        if (!pos) return pos;
+        const maxLeft = Math.max(FAB_EDGE_MARGIN, window.innerWidth - rect.width - FAB_EDGE_MARGIN);
+        const maxTop = Math.max(FAB_EDGE_MARGIN, window.innerHeight - rect.height - FAB_EDGE_MARGIN);
+        const next = { left: clamp(pos.left, FAB_EDGE_MARGIN, maxLeft), top: clamp(pos.top, FAB_EDGE_MARGIN, maxTop) };
+        if (next.left === pos.left && next.top === pos.top) return pos;
+        try {
+          localStorage.setItem(FAB_POSITION_STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          // Best-effort, same as everywhere else this gets persisted.
+        }
+        return next;
+      });
+    };
+    clampToViewport();
+    window.addEventListener("resize", clampToViewport);
+    return () => window.removeEventListener("resize", clampToViewport);
+  }, [open]);
 
   // Every click of the floating button is a new chat: reset to a blank,
   // not-yet-created conversation and reload the ticker/model context.
@@ -354,14 +426,105 @@ export function ChatAssistant() {
     }
   };
 
+  // Press-and-hold to reposition the FAB: a plain tap still opens the chat
+  // (the click fires normally since nothing here calls preventDefault
+  // before the long-press timer commits), but holding past FAB_LONG_PRESS_MS
+  // switches to drag-follow and, on release, suppresses that same click via
+  // justDraggedRef (declared above, alongside the other FAB state).
+  const handleFabPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
+    if (e.button !== 0 && e.pointerType === "mouse") return;
+    justDraggedRef.current = false;
+    const btn = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const state = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      origLeft: rect.left,
+      origTop: rect.top,
+      width: rect.width,
+      height: rect.height,
+      longPressTimer: null as ReturnType<typeof setTimeout> | null,
+      dragging: false,
+    };
+
+    state.longPressTimer = setTimeout(() => {
+      state.dragging = true;
+      setFabDragging(true);
+      btn.setPointerCapture(state.pointerId);
+    }, FAB_LONG_PRESS_MS);
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== state.pointerId) return;
+      const dx = moveEvent.clientX - state.startX;
+      const dy = moveEvent.clientY - state.startY;
+      if (!state.dragging) {
+        // Real movement before the hold commits reads as a scroll/swipe,
+        // not a reposition attempt -- cancel the long press instead of
+        // fighting the page's own touch scrolling.
+        if (Math.hypot(dx, dy) > FAB_DRAG_CANCEL_PX && state.longPressTimer) {
+          clearTimeout(state.longPressTimer);
+          state.longPressTimer = null;
+        }
+        return;
+      }
+      moveEvent.preventDefault();
+      const maxLeft = window.innerWidth - state.width - FAB_EDGE_MARGIN;
+      const maxTop = window.innerHeight - state.height - FAB_EDGE_MARGIN;
+      setFabPosition({
+        left: clamp(state.origLeft + dx, FAB_EDGE_MARGIN, maxLeft),
+        top: clamp(state.origTop + dy, FAB_EDGE_MARGIN, maxTop),
+      });
+    };
+
+    const handleUp = (upEvent: PointerEvent) => {
+      if (upEvent.pointerId !== state.pointerId) return;
+      if (state.longPressTimer) clearTimeout(state.longPressTimer);
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      window.removeEventListener("pointercancel", handleUp);
+      if (state.dragging) {
+        justDraggedRef.current = true;
+        setFabDragging(false);
+        setFabPosition((pos) => {
+          if (pos) {
+            try {
+              localStorage.setItem(FAB_POSITION_STORAGE_KEY, JSON.stringify(pos));
+            } catch {
+              // Best-effort only -- a private window or full storage just
+              // means the position resets next load, not worth surfacing.
+            }
+          }
+          return pos;
+        });
+      }
+    };
+
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
+    window.addEventListener("pointercancel", handleUp);
+  };
+
+  const handleFabClick = () => {
+    if (justDraggedRef.current) {
+      justDraggedRef.current = false;
+      return;
+    }
+    setOpen(true);
+  };
+
   return (
     <>
       {!open && (
         <button
+          ref={fabRef}
           type="button"
-          className="chat-fab btn btn-primary elev-md"
-          onClick={() => setOpen(true)}
-          aria-label="Open chat assistant"
+          className={`chat-fab btn btn-primary elev-md${fabDragging ? " is-dragging" : ""}`}
+          style={fabPosition ? { left: fabPosition.left, top: fabPosition.top, right: "auto", bottom: "auto" } : undefined}
+          onPointerDown={handleFabPointerDown}
+          onClick={handleFabClick}
+          aria-label="Open chat assistant (press and hold to move)"
+          title="Press and hold to move"
         >
           Chat
         </button>

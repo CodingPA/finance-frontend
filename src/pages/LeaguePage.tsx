@@ -16,15 +16,13 @@ import {
   formatSignedUsd,
   formatTime,
   formatUsd,
+  parseDateOnly,
 } from "../lib/format";
-import { Markdown } from "../components/Markdown";
-import { TradeModal } from "../components/TradeModal";
-import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
 import { AddCompetitorModal } from "../components/AddCompetitorModal";
 import { CompetitorAvatar } from "../components/CompetitorAvatar";
-import { BudgetBars } from "../components/BudgetBars";
 import { EquityChart, type EquityChartSeries } from "../components/EquityChart";
 import { Sparkline } from "../components/Sparkline";
+import { TradeModal } from "../components/TradeModal";
 import {
   cancelTrade,
   competitorColor,
@@ -32,22 +30,15 @@ import {
   getEquityCurve,
   getNextWakeups,
   getScoreboard,
-  getScratchpad,
   listCompetitions,
   listCompetitionTrades,
   listCompetitors,
-  listModels,
-  listTrades,
-  listTurns,
   pnlClass,
   positionPnl,
-  positionToTradePrefill,
   refreshCompetition,
   triggerWakeup,
   REJECTION_CODE_LABELS,
-  TRADE_STATUS_LABELS,
   tradeStatusTagClass,
-  TURN_TRIGGER_LABELS,
   type Competition,
   type CompetitionTrade,
   type CompetitorDetail,
@@ -55,13 +46,8 @@ import {
   type CompetitorSummary,
   type EquityCurveSeries,
   type ForcedCheckin,
-  type LeagueModel,
-  type NextWakeups,
   type Position,
   type Scoreboard,
-  type Scratchpad,
-  type Trade,
-  type TurnSummary,
 } from "../lib/league";
 
 const LEADER_COLOR = "var(--color-accent)";
@@ -139,6 +125,20 @@ function rejectionLabel(code: string): string {
   return REJECTION_CODE_LABELS[code as keyof typeof REJECTION_CODE_LABELS] ?? code;
 }
 
+// Keeps the mobile trades list's collapsed label (ticker + instrument, e.g.
+// "SPY call 768") to one short line regardless of how verbose an option
+// description gets -- the full ticker/instrument is still in the expanded row.
+function truncateLabel(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function formatShortDate(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = parseDateOnly(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 function computeDayInfo(startDate: string, endDate: string): { dayNum: number; totalDays: number } {
   const msPerDay = 86_400_000;
   const start = new Date(`${startDate}T00:00:00`);
@@ -175,7 +175,6 @@ export function LeaguePage() {
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [wakingAll, setWakingAll] = useState(false);
   const [wakeAllError, setWakeAllError] = useState<string | null>(null);
-  const [models, setModels] = useState<LeagueModel[]>([]);
   const [equityCurve, setEquityCurve] = useState<EquityCurveSeries[] | null>(null);
   const [nextForcedCheckin, setNextForcedCheckin] = useState<ForcedCheckin | null>(null);
 
@@ -231,12 +230,6 @@ export function LeaguePage() {
     };
   }, []);
 
-  useEffect(() => {
-    listModels()
-      .then(setModels)
-      .catch(() => {});
-  }, []);
-
   // Forced check-in slots are the same 3-daily-floor rows for every
   // competitor in a competition (finance-backend/docs/league-api.md), so the first AI
   // competitor's own next-wakeups view is enough to drive the
@@ -252,6 +245,33 @@ export function LeaguePage() {
       cancelled = true;
     };
   }, [firstAiCompetitorId]);
+
+  // The scoreboard/summary endpoints don't carry an open-positions count --
+  // it only exists on each competitor's own detail -- so the "# Positions"
+  // column fetches every competitor's detail in parallel rather than
+  // exposing that N+1 as a per-row lazy load (the desktop table wants the
+  // count up front, not just on expand). Re-runs whenever the roster
+  // changes or a trade/wake-up fires (refreshSignal).
+  const [positionCounts, setPositionCounts] = useState<Map<number, number>>(new Map());
+  useEffect(() => {
+    if (competitors.length === 0) {
+      setPositionCounts(new Map());
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      competitors.map((c) =>
+        getCompetitor(c.id)
+          .then((d): [number, number] => [c.id, d.positions.length])
+          .catch((): [number, number] => [c.id, -1]),
+      ),
+    ).then((pairs) => {
+      if (!cancelled) setPositionCounts(new Map(pairs.filter(([, count]) => count >= 0)));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [competitors, refreshSignal]);
 
   // league.trade_activity / league.wakeup_complete / league.wakeup_failed all
   // arrive as generic notification.new pushes -- refresh the scoreboard and
@@ -405,7 +425,22 @@ export function LeaguePage() {
   };
 
   const hasHumanCompetitor = competitors.some((c) => c.kind === "human");
+  const humanCompetitor = competitors.find((c) => c.kind === "human") ?? null;
   const aiCompetitorCount = competitors.filter((c) => c.kind === "ai").length;
+
+  // Fetched fresh each time the header's New trade button opens the modal
+  // (rather than kept in sync continuously) -- it's just there to seed the
+  // quick-select position badges, same as everywhere else TradeModal is used.
+  const [newTradeOpen, setNewTradeOpen] = useState(false);
+  const [newTradePositions, setNewTradePositions] = useState<Position[]>([]);
+
+  const openNewTrade = () => {
+    if (!humanCompetitor) return;
+    setNewTradeOpen(true);
+    getCompetitor(humanCompetitor.id)
+      .then((d) => setNewTradePositions(d.positions))
+      .catch(() => {});
+  };
 
   const startingCapital = competition ? Number(competition.starting_capital) : 0;
   const dayInfo = competition ? computeDayInfo(competition.start_date, competition.end_date) : null;
@@ -468,10 +503,15 @@ export function LeaguePage() {
         <h2>Paper Trading League</h2>
         {competition && (
           <>
+            {humanCompetitor && (
+              <button type="button" className="btn btn-secondary" style={{ marginLeft: "auto" }} onClick={openNewTrade}>
+                New trade
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-secondary"
-              style={{ marginLeft: "auto" }}
+              style={humanCompetitor ? undefined : { marginLeft: "auto" }}
               onClick={handleRefreshScoreboard}
               disabled={refreshingScoreboard}
               title="Force a live re-quote of every open position, right now"
@@ -635,7 +675,7 @@ export function LeaguePage() {
                     </div>
                     {expanded && (
                       <div className="league-mobile-expand">
-                        <MobilePositionsPanel competitorId={c.id} refreshSignal={refreshSignal} />
+                        <PositionsOnlyPanel competitorId={c.id} refreshSignal={refreshSignal} compact />
                       </div>
                     )}
                   </div>
@@ -654,6 +694,7 @@ export function LeaguePage() {
                     <th>Curve</th>
                     <th>Account</th>
                     <th>Return</th>
+                    <th># Positions</th>
                     <th>Trades</th>
                     <th>API cost</th>
                     <th>Last woke</th>
@@ -694,6 +735,7 @@ export function LeaguePage() {
                           </td>
                           <td data-label="Account">{formatUsd(Number(c.account_value))}</td>
                           <td data-label="Return">{formatSignedPercent(Number(c.total_return_pct))}</td>
+                          <td data-label="# Positions">{positionCounts.get(c.id) ?? "—"}</td>
                           <td data-label="Trades">{c.filled_trades_count}</td>
                           <td data-label="API cost">{c.api_cost_usd !== null ? formatUsd(Number(c.api_cost_usd)) : "—"}</td>
                           <td data-label="Last woke">{c.last_woke_at ? formatTime(c.last_woke_at) : "never"}</td>
@@ -705,14 +747,8 @@ export function LeaguePage() {
                         </tr>
                         {c.id === selectedId && summary && (
                           <tr>
-                            <td colSpan={9} className="league-expanded-cell">
-                              <CompetitorPanel
-                                summary={summary}
-                                models={models}
-                                refreshSignal={refreshSignal}
-                                onTradeFilled={() => competition && loadCompetitionData(competition.id).catch(() => {})}
-                                onCollapse={() => setSelectedId(null)}
-                              />
+                            <td colSpan={10} className="league-expanded-cell">
+                              <PositionsOnlyPanel competitorId={c.id} refreshSignal={refreshSignal} compact={false} />
                             </td>
                           </tr>
                         )}
@@ -766,10 +802,11 @@ export function LeaguePage() {
               {tradesLoading && !trades && <p className="text-muted">Loading trades…</p>}
               {trades && trades.length === 0 && <p className="text-muted">No trades in this range.</p>}
 
-              {trades && trades.length > 0 && isMobile && (
+              {trades && trades.length > 0 && (
                 <div className="league-mobile-list">
                   {trades.map((t) => {
                     const expanded = t.id === expandedTradeId;
+                    const label = `${t.ticker}${t.instrument_type !== "stock" ? ` ${t.instrument_type} ${t.strike}` : ""}`;
                     return (
                       <div className="league-mobile-item" key={t.id}>
                         <div
@@ -790,7 +827,15 @@ export function LeaguePage() {
                             <path d="M6 9l6 6 6-6" />
                           </svg>
                           <span className="league-mobile-name">
-                            {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
+                            {isMobile ? truncateLabel(label, 15) : label}
+                            {!isMobile && (
+                              <span className="league-mobile-trade-competitor">
+                                {t.competitor_name} · {t.competitor_kind === "ai" ? "AI" : "YOU"}
+                              </span>
+                            )}
+                          </span>
+                          <span className="league-mobile-trade-price">
+                            {t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}
                           </span>
                           <span className={`tag ${tradeStatusTagClass(t.status)} league-mobile-value`}>
                             {t.side.replace(/_/g, " ").toUpperCase()}
@@ -803,30 +848,20 @@ export function LeaguePage() {
                                 <span className="league-mobile-position-ticker">When</span>
                                 <span className="league-mobile-position-value">{formatDateTime(t.created_at)}</span>
                               </li>
-                              <li className="league-mobile-position-row">
-                                <span className="league-mobile-position-ticker">Competitor</span>
-                                <span className="league-mobile-position-value">
-                                  {t.competitor_name}{" "}
-                                  <span className={`tag ${t.competitor_kind === "ai" ? "tag-outline" : "tag-accent"}`}>
-                                    {t.competitor_kind === "ai" ? "AI" : "YOU"}
+                              {isMobile && (
+                                <li className="league-mobile-position-row">
+                                  <span className="league-mobile-position-ticker">Competitor</span>
+                                  <span className="league-mobile-position-value">
+                                    {t.competitor_name}{" "}
+                                    <span className={`tag ${t.competitor_kind === "ai" ? "tag-outline" : "tag-accent"}`}>
+                                      {t.competitor_kind === "ai" ? "AI" : "YOU"}
+                                    </span>
                                   </span>
-                                </span>
-                              </li>
+                                </li>
+                              )}
                               <li className="league-mobile-position-row">
                                 <span className="league-mobile-position-ticker">Qty</span>
                                 <span className="league-mobile-position-value">{t.quantity}</span>
-                              </li>
-                              <li className="league-mobile-position-row">
-                                <span className="league-mobile-position-ticker">Fill</span>
-                                <span className="league-mobile-position-value">
-                                  {t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}
-                                </span>
-                              </li>
-                              <li className="league-mobile-position-row">
-                                <span className="league-mobile-position-ticker">Status</span>
-                                <span className="league-mobile-position-value">
-                                  <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
-                                </span>
                               </li>
                             </ul>
                             {t.status === "rejected" && <p className="card-meta">{t.rejection_reason}</p>}
@@ -856,60 +891,6 @@ export function LeaguePage() {
                   })}
                 </div>
               )}
-
-              {trades && trades.length > 0 && !isMobile && (
-                <div className="table-wrap stack-mobile">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>When</th>
-                        <th>Competitor</th>
-                        <th>Side</th>
-                        <th>Ticker</th>
-                        <th>Qty</th>
-                        <th>Fill</th>
-                        <th>Status</th>
-                        <th>Thesis</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trades.map((t) => (
-                        <tr key={t.id}>
-                          <td data-label="When">{formatDateTime(t.created_at)}</td>
-                          <td data-label="Competitor">
-                            {t.competitor_name}{" "}
-                            <span className={`tag ${t.competitor_kind === "ai" ? "tag-outline" : "tag-accent"}`}>
-                              {t.competitor_kind === "ai" ? "AI" : "YOU"}
-                            </span>
-                          </td>
-                          <td data-label="Side">{t.side}</td>
-                          <td data-label="Ticker">
-                            {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
-                          </td>
-                          <td data-label="Qty">{t.quantity}</td>
-                          <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
-                          <td data-label="Status">
-                            <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
-                            {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
-                            {t.status === "pending" && <div className="card-meta">Fills at next open</div>}
-                            {t.status === "pending" && t.competitor_kind === "human" && (
-                              <button
-                                type="button"
-                                className="btn btn-secondary"
-                                onClick={() => handleCancelTrade(t.competitor_id, t.id)}
-                                disabled={cancelingTradeId === t.id}
-                              >
-                                {cancelingTradeId === t.id ? "Cancelling…" : "Cancel"}
-                              </button>
-                            )}
-                          </td>
-                          <td data-label="Thesis">{t.thesis}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
               {cancelError && <p className="form-error">{cancelError}</p>}
             </div>
           )}
@@ -925,16 +906,54 @@ export function LeaguePage() {
               }}
             />
           )}
+
+          {newTradeOpen && humanCompetitor && (
+            <TradeModal
+              competitorId={humanCompetitor.id}
+              positions={newTradePositions}
+              onClose={() => setNewTradeOpen(false)}
+              onFilled={(trade) => {
+                setNewTradeOpen(false);
+                setTrades((prev) =>
+                  prev
+                    ? [
+                        { ...trade, competitor_id: humanCompetitor.id, competitor_name: humanCompetitor.name, competitor_kind: humanCompetitor.kind },
+                        ...prev,
+                      ]
+                    : prev,
+                );
+                setRefreshSignal((k) => k + 1);
+                loadCompetitionData(competition.id).catch(() => {});
+              }}
+            />
+          )}
         </>
       )}
     </div>
   );
 }
 
-// Mobile Positions tab: expanding a competitor here shows just their open
-// positions (no trades/reasoning tabs, no budget bars) -- a lighter fetch and
-// a much shorter render than CompetitorPanel, which the desktop table still uses.
-function MobilePositionsPanel({ competitorId, refreshSignal }: { competitorId: number; refreshSignal: number }) {
+// Expanding any competitor's row (mobile or desktop) shows just their open
+// positions -- no trades/reasoning tabs, no system prompt, no budget bars,
+// no wake button. A human competitor's own trading (New Trade, Sell,
+// Buy-to-close, cancel a pending order) now lives only on their full
+// competitor dashboard page (the small icon/Dashboard link on each row),
+// not inline in this scoreboard.
+//
+// `compact` picks the layout: mobile's collapsible list has no room for
+// more than a ticker + value per row, but desktop has the width for the
+// same full open-positions table CompetitorDashboardPage uses (Ticker,
+// Instrument, Qty, Avg cost, Mark, Unrealized, Target/dead), minus the
+// Sell/Buy-to-close Actions column -- this view is read-only.
+function PositionsOnlyPanel({
+  competitorId,
+  refreshSignal,
+  compact,
+}: {
+  competitorId: number;
+  refreshSignal: number;
+  compact: boolean;
+}) {
   const [detail, setDetail] = useState<CompetitorDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -952,355 +971,89 @@ function MobilePositionsPanel({ competitorId, refreshSignal }: { competitorId: n
 
   if (error) return <p className="form-error">{error}</p>;
   if (!detail) return <p className="text-muted">Loading…</p>;
-  if (detail.positions.length === 0) return <p className="text-muted">No open positions.</p>;
+
+  if (compact) {
+    if (detail.positions.length === 0) return <p className="text-muted">No open positions.</p>;
+    return (
+      <ul className="league-mobile-positions league-positions-only">
+        {detail.positions.map((p, i) => {
+          const pnl = positionPnl(p);
+          return (
+            <li className="league-mobile-position-row" key={i}>
+              <span className="league-mobile-position-ticker">
+                {p.ticker}
+                {p.instrument_type !== "stock" && (
+                  <span className="text-muted"> {p.instrument_type} ${p.strike}</span>
+                )}
+              </span>
+              <span className={`league-mobile-position-value ${pnlClass(pnl)}`}>{formatUsd(Number(p.current_value))}</span>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  }
 
   return (
-    <ul className="league-mobile-positions">
-      {detail.positions.map((p, i) => {
-        const pnl = positionPnl(p);
-        return (
-          <li className="league-mobile-position-row" key={i}>
-            <span className="league-mobile-position-ticker">
-              {p.ticker}
-              {p.instrument_type !== "stock" && (
-                <span className="text-muted"> {p.instrument_type} ${p.strike}</span>
-              )}
-            </span>
-            <span className={`league-mobile-position-value ${pnlClass(pnl)}`}>{formatUsd(Number(p.current_value))}</span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-const TABS = ["positions", "trades", "reasoning"] as const;
-type Tab = (typeof TABS)[number];
-
-function CompetitorPanel({
-  summary,
-  models,
-  refreshSignal,
-  onTradeFilled,
-  onCollapse,
-}: {
-  summary: CompetitorSummary;
-  models: LeagueModel[];
-  refreshSignal: number;
-  onTradeFilled: () => void;
-  onCollapse: () => void;
-}) {
-  const provider = models.find((m) => m.model_id === summary.assistant_model)?.provider ?? "anthropic";
-  const [tab, setTab] = useState<Tab>("positions");
-  const [detail, setDetail] = useState<CompetitorDetail | null>(null);
-  const [trades, setTrades] = useState<Trade[] | null>(null);
-  const [scratchpad, setScratchpad] = useState<Scratchpad | null>(null);
-  const [turns, setTurns] = useState<TurnSummary[] | null>(null);
-  const [nextWakeups, setNextWakeups] = useState<NextWakeups | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  // "new" for the header's New trade button, a Position for the Sell/Buy-to-
-  // close button on an open positions row (prefills the modal to close it).
-  const [tradeModalTarget, setTradeModalTarget] = useState<"new" | Position | null>(null);
-  const [openTurnId, setOpenTurnId] = useState<number | null>(null);
-  const [waking, setWaking] = useState(false);
-  const [cancelingTradeId, setCancelingTradeId] = useState<number | null>(null);
-  const [cancelError, setCancelError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setError(null);
-    const loads: Promise<unknown>[] = [
-      getCompetitor(summary.id).then((d) => !cancelled && setDetail(d)),
-      listTrades(summary.id).then((t) => !cancelled && setTrades(t)),
-    ];
-    if (summary.kind === "ai") {
-      loads.push(getScratchpad(summary.id).then((s) => !cancelled && setScratchpad(s)));
-      loads.push(listTurns(summary.id).then((t) => !cancelled && setTurns(t)));
-      loads.push(getNextWakeups(summary.id).then((w) => !cancelled && setNextWakeups(w)));
-    }
-    Promise.all(loads).catch((err) => {
-      if (!cancelled) setError(extractGenericMessage(err, "Couldn't load competitor detail."));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [summary.id, summary.kind, refreshSignal]);
-
-  const handleWakeUp = async () => {
-    setWaking(true);
-    try {
-      await triggerWakeup(summary.id);
-    } catch (err) {
-      setError(extractGenericMessage(err, "Couldn't trigger a wake-up."));
-    } finally {
-      setWaking(false);
-    }
-  };
-
-  // Both outcomes (a clean cancel, or losing the race against the resolver)
-  // come back as the same full Trade row -- upsert it in place either way,
-  // no follow-up fetch needed (see cancelTrade()'s comment in lib/league.ts).
-  const handleCancelTrade = async (tradeId: number) => {
-    setCancelError(null);
-    setCancelingTradeId(tradeId);
-    try {
-      const updated = await cancelTrade(summary.id, tradeId);
-      setTrades((prev) => (prev ? prev.map((t) => (t.id === updated.id ? updated : t)) : prev));
-    } catch (err) {
-      setCancelError(extractGenericMessage(err, "Couldn't cancel that order."));
-    } finally {
-      setCancelingTradeId(null);
-    }
-  };
-
-  return (
-    <div className="card elev-sm stack">
-      <div className="page-head">
-        <h3 style={{ display: "flex", alignItems: "center", gap: 8, margin: 0 }}>
-          <CompetitorAvatar color={summary.color} avatar={summary.avatar} size={24} />
-          {summary.name}
-        </h3>
-        {summary.assistant_model && <span className="tag tag-neutral">{summary.assistant_model}</span>}
-        {summary.kind === "human" && (
-          <button type="button" className="btn btn-primary" onClick={() => setTradeModalTarget("new")}>
-            New trade
-          </button>
-        )}
-        {summary.kind === "ai" && (
-          <button type="button" className="btn btn-secondary" onClick={handleWakeUp} disabled={waking}>
-            {waking ? "Waking…" : "Wake up now"}
-          </button>
-        )}
-        <button type="button" className="btn btn-secondary" style={{ marginLeft: "auto" }} onClick={onCollapse}>
-          Collapse
-        </button>
-      </div>
-
-      {summary.kind === "ai" && (
-        <BudgetBars
-          totalBudgetUsd={summary.total_budget_usd}
-          weeklyBudgetUsd={summary.weekly_budget_usd}
-          apiCostUsd={summary.api_cost_usd}
-          weekSpentUsd={summary.week_spent_usd}
-          todaySpentUsd={summary.today_spent_usd}
-        />
-      )}
-
-      {summary.kind === "ai" && nextWakeups && (nextWakeups.forced_checkins.length > 0 || nextWakeups.self_scheduled.length > 0) && (
-        <div className="page-head">
-          {nextWakeups.forced_checkins.map((c, i) => (
-            <span className="tag tag-neutral" key={`forced-${i}`} title="Forced check-in">
-              {c.label} · {formatDateTime(c.next_run_at)}
-            </span>
-          ))}
-          {nextWakeups.self_scheduled.map((w) => (
-            <span className="tag tag-accent" key={`self-${w.id}`} title={w.reason}>
-              Self-scheduled · {formatDateTime(w.run_at)}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {summary.system_prompt && <p className="card-body">{summary.system_prompt}</p>}
-
-      {error && <p className="form-error">{error}</p>}
-
-      <div className="seg" role="tablist" aria-label="Competitor detail">
-        <label className="seg-opt">
-          <input type="radio" name="league-tab" checked={tab === "positions"} onChange={() => setTab("positions")} />
-          Positions
-        </label>
-        <label className="seg-opt">
-          <input type="radio" name="league-tab" checked={tab === "trades"} onChange={() => setTab("trades")} />
-          Trades
-        </label>
-        {summary.kind === "ai" && (
-          <label className="seg-opt">
-            <input type="radio" name="league-tab" checked={tab === "reasoning"} onChange={() => setTab("reasoning")} />
-            Reasoning
-          </label>
-        )}
-      </div>
-
-      {tab === "positions" && (
-        <div className="table-wrap table-scroll">
-          {!detail && <p className="text-muted">Loading…</p>}
-          {detail && detail.positions.length === 0 && <p className="text-muted">No open positions.</p>}
-          {detail && (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Ticker</th>
-                  <th>Value</th>
-                  <th>P/L</th>
-                  <th>Instrument</th>
-                  <th>Qty</th>
-                  <th>Current price</th>
-                  <th>Avg cost</th>
-                  <th>Opened</th>
-                  {summary.kind === "human" && <th>Actions</th>}
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td data-label="Ticker">SPAXX (CASH)</td>
-                  <td data-label="Value">{formatUsd(Number(detail.cash_balance))}</td>
-                  <td></td>
-                  <td colSpan={4} className="text-muted">
-                    Cash
-                  </td>
-                  <td></td>
-                  {summary.kind === "human" && <td></td>}
-                </tr>
-                {detail.positions.map((p, i) => {
-                  const pnl = positionPnl(p);
-                  return (
-                    <tr key={i}>
-                      <td data-label="Ticker">{p.ticker}</td>
-                      <td data-label="Value">{formatUsd(Number(p.current_value))}</td>
-                      <td data-label="P/L" className={pnlClass(pnl)}>
-                        {formatSignedUsd(pnl)}
-                      </td>
-                      <td data-label="Instrument">
-                        {p.instrument_type}
-                        {p.strike && ` $${p.strike} exp ${p.expiration}`}
-                        {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
-                      </td>
-                      <td data-label="Qty">{p.quantity}</td>
-                      <td data-label="Current price" className={pnlClass(pnl)}>
-                        {formatPrice(Number(p.current_price))}
-                      </td>
-                      <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
-                      <td data-label="Opened">{formatDateTime(p.opened_at)}</td>
-                      {summary.kind === "human" && (
-                        <td data-label="Actions">
-                          <button type="button" className="btn btn-secondary" onClick={() => setTradeModalTarget(p)}>
-                            {p.is_short ? "Buy to close" : "Sell"}
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {tab === "trades" && (
-        <div className="table-wrap stack-mobile">
-          {!trades && <p className="text-muted">Loading…</p>}
-          {trades && trades.length === 0 && <p className="text-muted">No trades yet.</p>}
-          {trades && trades.length > 0 && (
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Side</th>
-                  <th>Ticker</th>
-                  <th>Qty</th>
-                  <th>Fill</th>
-                  <th>Status</th>
-                  <th>Thesis</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trades.map((t) => (
-                  <tr key={t.id}>
-                    <td data-label="When">{formatDateTime(t.created_at)}</td>
-                    <td data-label="Side">{t.side}</td>
-                    <td data-label="Ticker">
-                      {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
-                    </td>
-                    <td data-label="Qty">{t.quantity}</td>
-                    <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
-                    <td data-label="Status">
-                      <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
-                      {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
-                      {t.status === "pending" && <div className="card-meta">Fills at next open</div>}
-                      {t.status === "pending" && summary.kind === "human" && (
-                        <button
-                          type="button"
-                          className="btn btn-secondary"
-                          onClick={() => handleCancelTrade(t.id)}
-                          disabled={cancelingTradeId === t.id}
-                        >
-                          {cancelingTradeId === t.id ? "Cancelling…" : "Cancel"}
-                        </button>
-                      )}
-                    </td>
-                    <td data-label="Thesis">{t.thesis}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-          {cancelError && <p className="form-error">{cancelError}</p>}
-        </div>
-      )}
-
-      {tab === "reasoning" && summary.kind === "ai" && (
-        <div className="stack">
-          <div className="card elev-sm">
-            <div className="card-kicker">Current scratchpad</div>
-            {scratchpad?.content ? (
-              <div className="card-body markdown-body">
-                <Markdown>{scratchpad.content}</Markdown>
-              </div>
-            ) : (
-              <p className="card-body">(nothing written yet)</p>
-            )}
-            {scratchpad?.updated_at && <div className="card-meta">{formatDateTime(scratchpad.updated_at)}</div>}
-          </div>
-
-          {!turns && <p className="text-muted">Loading turns…</p>}
-          {turns && turns.length === 0 && <p className="text-muted">No wake-ups yet.</p>}
-          {turns && turns.length > 0 && (
-            <div className="table-wrap stack-mobile">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>When</th>
-                    <th>Trigger</th>
-                    <th>Tools used</th>
-                    <th>Cost</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {turns.map((t) => (
-                    <tr key={t.id} style={{ cursor: "pointer" }} onClick={() => setOpenTurnId(t.id)}>
-                      <td data-label="When">{formatDateTime(t.created_at)}</td>
-                      <td data-label="Trigger">{TURN_TRIGGER_LABELS[t.trigger]}</td>
-                      <td data-label="Tools used">{t.tool_calls.length > 0 ? t.tool_calls.join(", ") : "—"}</td>
-                      <td data-label="Cost">${t.cost_usd}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-
-      {tradeModalTarget && (
-        <TradeModal
-          competitorId={summary.id}
-          positions={detail?.positions ?? []}
-          prefill={tradeModalTarget !== "new" ? positionToTradePrefill(tradeModalTarget) : undefined}
-          onClose={() => setTradeModalTarget(null)}
-          onFilled={(trade) => {
-            setTrades((prev) => [trade, ...(prev ?? [])]);
-            setTradeModalTarget(null);
-            onTradeFilled();
-          }}
-        />
-      )}
-
-      {openTurnId !== null && (
-        <TurnTranscriptModal competitorId={summary.id} turnId={openTurnId} provider={provider} onClose={() => setOpenTurnId(null)} />
-      )}
+    <div className="table-wrap table-scroll">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Ticker</th>
+            <th>Instrument</th>
+            <th>Qty</th>
+            <th>Avg cost</th>
+            <th>Mark</th>
+            <th>Unrealized</th>
+            <th>Target / dead</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td data-label="Ticker">SPAXX</td>
+            <td data-label="Instrument" className="text-muted">
+              Cash
+            </td>
+            <td data-label="Qty">—</td>
+            <td data-label="Avg cost">—</td>
+            <td data-label="Mark">—</td>
+            <td data-label="Unrealized">{formatUsd(Number(detail.cash_balance))}</td>
+            <td data-label="Target / dead"></td>
+          </tr>
+          {detail.positions.map((p, i) => {
+            const pnl = positionPnl(p);
+            return (
+              <tr key={i}>
+                <td data-label="Ticker">
+                  <strong>{p.ticker}</strong>
+                </td>
+                <td data-label="Instrument">
+                  {p.instrument_type}
+                  {p.strike && ` $${p.strike} exp ${formatShortDate(p.expiration)}`}
+                  {p.is_short && <span className="tag tag-outline">SHORT LEG</span>}
+                </td>
+                <td data-label="Qty">{p.quantity}</td>
+                <td data-label="Avg cost">{formatPrice(Number(p.avg_cost))}</td>
+                <td
+                  data-label="Mark"
+                  className={pnlClass(pnl)}
+                  title={p.priced_at ? `priced ${formatDateTime(p.priced_at)}` : "no live quote yet -- priced at cost"}
+                >
+                  {formatPrice(Number(p.current_price))}
+                </td>
+                <td data-label="Unrealized" className={pnlClass(pnl)}>
+                  {formatSignedUsd(pnl)}
+                </td>
+                <td data-label="Target / dead" className="text-muted">
+                  {p.target_price ? formatPrice(Number(p.target_price)) : "—"} /{" "}
+                  {p.dead_price ? formatPrice(Number(p.dead_price)) : "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {detail.positions.length === 0 && <p className="text-muted">No open positions.</p>}
     </div>
   );
 }

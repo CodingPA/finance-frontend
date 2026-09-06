@@ -91,6 +91,142 @@
   color: var(--color-negative);
 }
 
+/* — trade modal — */
+.trade-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Expiration badges: kept to one line -- a handful of dates plus the "More"
+   dropdown for the rest, rather than wrapping to a second row. */
+.trade-badge-row-nowrap {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.trade-badge-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.trade-badge-more {
+  flex: none;
+  width: auto;
+  min-height: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+}
+
+.trade-badge-more.is-selected {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Sits inline next to the Stock/Options badges, not its own full-width field
+   -- narrow on purpose, it's a 5/10/15/20/25 pick, not free text. */
+.trade-strike-count {
+  flex: none;
+  width: auto;
+  min-height: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.trade-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.trade-badge:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+.trade-badge.is-selected {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.trade-badge-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.trade-badge.is-selected .trade-badge-sub {
+  color: inherit;
+}
+
+.trade-quote {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+}
+
+.trade-compact-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.trade-compact-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.input-sm {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* Fidelity-style two-sided chain: calls left of strike, puts right, strike
+   as the shared spine down the middle. Clicking either side of a row picks
+   that contract (and its call/put type) -- there's no separate direction
+   here, Buy/Sell is controlled by the Side badges above. */
+.trade-chain-table th,
+.trade-chain-table td {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-chain-strike {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.trade-chain-side {
+  cursor: pointer;
+}
+
+.trade-chain-side:not(.is-empty):hover {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.trade-chain-side.is-selected {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.trade-chain-side.is-empty {
+  cursor: default;
+  color: color-mix(in srgb, var(--color-text) 40%, transparent);
+}
+
 /* — competitor dashboard — */
 .competitor-hero {
   display: flex;

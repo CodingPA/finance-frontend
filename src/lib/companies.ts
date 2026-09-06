@@ -150,3 +150,87 @@ export async function screenCompany(ticker: string, maxAgeDays?: number): Promis
     throw new ApiError(res.status, body);
   }
 }
+
+/** A quick live quote for any ticker -- no tracked `Company` row required,
+ *  unlike getCompanyReport. Meant to be polled while a trade ticket is open
+ *  (finance-backend/docs/api-endpoints.md) for a "here's the current price" readout, not
+ *  stored or cached. Exact field set matches whichever pricing provider is
+ *  active; last_price is null (not an error) for a ticker the provider
+ *  doesn't recognize. */
+export interface Quote {
+  symbol: string;
+  company_name: string | null;
+  exchange: string | null;
+  market_status: string | null;
+  last_price: number | null;
+  net_change: number | null;
+  percent_change_pct: number | null;
+  is_real_time: boolean;
+  last_trade_timestamp: string | null;
+  bid: number | null;
+  ask: number | null;
+  volume: number | null;
+  average_volume: number | null;
+  close: number | null;
+  after_hours: number | null;
+  fifty_two_week_range: string | null;
+  day_range: string | null;
+}
+
+/** SteadyAPI-only; Tradier ignores it and auto-detects the asset class. */
+export type QuoteAssetClass = "STOCKS" | "ETF" | "MUTUALFUNDS" | "FUTURES";
+
+export async function getQuote(ticker: string, assetClass?: QuoteAssetClass): Promise<Quote> {
+  const qs = assetClass ? `?asset_class=${encodeURIComponent(assetClass)}` : "";
+  const res = await apiFetch(`/companies/${encodeURIComponent(ticker)}/quote/${qs}`);
+  return parseJsonOrThrow<Quote>(res);
+}
+
+export interface OptionContract {
+  symbol: string;
+  base_symbol: string;
+  strike_price: number;
+  expiration_date: string;
+  moneyness_pct: number | null;
+  bid: number | null;
+  mid: number | null;
+  ask: number | null;
+  last: number | null;
+  volume: number | null;
+  open_interest: number | null;
+  implied_volatility_pct: number | null;
+  delta: number | null;
+  option_type: "call" | "put";
+}
+
+export interface OptionsChain {
+  expirations: string[];
+  calls: OptionContract[];
+  puts: OptionContract[];
+}
+
+/** Just the expiration dates for a ticker's options -- a cheap call meant to
+ *  seed a date picker before committing to a full chain fetch below. Always
+ *  one flat, sorted YYYY-MM-DD list regardless of provider. */
+export async function getOptionsExpirations(ticker: string): Promise<string[]> {
+  const res = await apiFetch(`/companies/${encodeURIComponent(ticker)}/options-expirations/`);
+  const data = await parseJsonOrThrow<{ expirations: string[] }>(res);
+  return data.expirations;
+}
+
+/** Live options chain for a ticker, same no-tracking-required contract as
+ *  getQuote. Omitting `expiration` gets the provider's own nearest/next
+ *  expiration. `strikes` trims calls/puts to the N contracts on each side
+ *  closest to the money (ranked by |moneyness_pct|) -- strongly recommended
+ *  for any UI table, since an unfiltered chain can be 100+ strikes per side;
+ *  omit it only to build your own strike-range picker over the full chain.
+ *  Empty calls/puts (no listed options, or no expiration on/after today) is
+ *  a valid 200, not an error. */
+export async function getOptionsChain(ticker: string, expiration?: string, strikes?: number): Promise<OptionsChain> {
+  const params = new URLSearchParams();
+  if (expiration) params.set("expiration", expiration);
+  if (strikes) params.set("strikes", String(strikes));
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  const res = await apiFetch(`/companies/${encodeURIComponent(ticker)}/options-chain/${qs}`);
+  return parseJsonOrThrow<OptionsChain>(res);
+}

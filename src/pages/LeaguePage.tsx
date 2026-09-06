@@ -1287,6 +1287,7 @@ function CompetitorPanel({
       {tradeModalTarget && (
         <TradeModal
           competitorId={summary.id}
+          positions={detail?.positions ?? []}
           prefill={tradeModalTarget !== "new" ? positionToTradePrefill(tradeModalTarget) : undefined}
           onClose={() => setTradeModalTarget(null)}
           onFilled={(trade) => {

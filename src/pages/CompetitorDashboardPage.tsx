@@ -790,6 +790,7 @@ export function CompetitorDashboardPage() {
       {detail && tradeModalTarget && (
         <TradeModal
           competitorId={detail.id}
+          positions={detail.positions}
           prefill={tradeModalTarget !== "new" ? positionToTradePrefill(tradeModalTarget) : undefined}
           onClose={() => setTradeModalTarget(null)}
           onFilled={(trade) => {

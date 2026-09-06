@@ -92,6 +92,13 @@
 }
 
 /* — trade modal — */
+/* Wider than the shared .dialog-lg (640px) -- the ticket packs a chain
+   table and several side-by-side compact rows that feel cramped at the
+   default width. */
+.trade-modal-dialog {
+  width: min(760px, 100%);
+}
+
 .trade-badge-row {
   display: flex;
   flex-wrap: wrap;
@@ -175,6 +182,14 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--color-text) 60%, transparent);
+}
+
+/* Sits at the right edge of the Ticker/Side row -- the empty label keeps its
+   text baseline-aligned with the ticker input and side badges below it. */
+.trade-price-readout-field {
+  flex: none;
+  margin-left: auto;
+  text-align: right;
 }
 
 .trade-compact-row {

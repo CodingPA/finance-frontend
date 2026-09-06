@@ -34,9 +34,13 @@ import { parseDateOnly } from "../lib/format";
 const SIDE_OPTIONS: { value: TradeSide; short: string; label: string }[] = [
   { value: "buy", short: "Buy", label: "Buy (open/add)" },
   { value: "sell", short: "Sell", label: "Sell (close/reduce)" },
-  { value: "sell_to_open", short: "Sell to open", label: "Sell to open (covered call / cash-covered put)" },
-  { value: "buy_to_close", short: "Buy to close", label: "Buy to close" },
+  { value: "sell_to_open", short: "Sell(open)", label: "Sell to open (covered call / cash-covered put)" },
+  { value: "buy_to_close", short: "Buy(close)", label: "Buy to close" },
 ];
+
+// Real ticker symbols top out around 5 chars (a few OTC/ADR outliers run to
+// 6-7) -- caps accidental pastes/typos rather than any real product limit.
+const TICKER_MAX_LENGTH = 7;
 
 const STRIKE_COUNT_OPTIONS = [5, 10, 15, 20, 25];
 
@@ -214,12 +218,19 @@ export function TradeModal({
     setChain(null);
     if (!isOption || !debouncedTicker || !expiration) return;
     let cancelled = false;
+    // Only the first fetch after ticker/expiration/strikeCount changes shows
+    // "(loading…)" -- background polls on the interval below update the
+    // table silently so it doesn't flicker every 5s.
+    let first = true;
     const fetchChain = () => {
-      setChainLoading(true);
+      if (first) setChainLoading(true);
       getOptionsChain(debouncedTicker, expiration, strikeCount)
         .then((c) => !cancelled && setChain(c))
         .catch(() => !cancelled && setChain(null))
-        .finally(() => !cancelled && setChainLoading(false));
+        .finally(() => {
+          if (!cancelled && first) setChainLoading(false);
+          first = false;
+        });
     };
     fetchChain();
     const interval = setInterval(fetchChain, QUOTE_POLL_MS);
@@ -234,6 +245,31 @@ export function TradeModal({
   const contracts: OptionContract[] = !chain ? [] : instrumentType === "call" ? chain.calls : chain.puts;
   const selectedContract = contracts.find(
     (c) => String(c.strike_price) === String(Number(strike || NaN)) && c.expiration_date === expiration,
+  );
+
+  // Live price context, shown top-right next to Ticker/Side -- mid/bid/ask
+  // for a picked contract, the underlying's price while still choosing one,
+  // or last price/% change for a stock trade.
+  const priceReadout = isOption ? (
+    selectedContract ? (
+      <span className="trade-quote">
+        mid ${selectedContract.mid?.toFixed(2) ?? "—"} · bid {selectedContract.bid ?? "—"} / ask {selectedContract.ask ?? "—"}
+      </span>
+    ) : (
+      quote?.last_price != null && <span className="trade-quote">underlying ${quote.last_price.toFixed(2)}</span>
+    )
+  ) : (
+    quote?.last_price != null && (
+      <span
+        className={`trade-quote ${
+          (quote.percent_change_pct ?? 0) > 0 ? "pnl-positive" : (quote.percent_change_pct ?? 0) < 0 ? "pnl-negative" : ""
+        }`}
+      >
+        ${quote.last_price.toFixed(2)}
+        {quote.percent_change_pct != null &&
+          ` (${quote.percent_change_pct > 0 ? "+" : ""}${quote.percent_change_pct.toFixed(2)}%)`}
+      </span>
+    )
   );
 
   // Picking either side of a chain row commits to that contract's own type
@@ -282,7 +318,7 @@ export function TradeModal({
   };
 
   return (
-    <Modal title={prefill ? `Close ${prefill.ticker}` : "New trade"} onClose={onClose} wide>
+    <Modal title={prefill ? `Close ${prefill.ticker}` : "New trade"} onClose={onClose} wide className="trade-modal-dialog">
       <form className="stack" onSubmit={handleSubmit}>
         {positions.length > 0 && (
           <div className="field">
@@ -303,113 +339,137 @@ export function TradeModal({
           </div>
         )}
 
-        <div className="field">
-          <label htmlFor="trade-ticker">Ticker</label>
-          <input
-            id="trade-ticker"
-            className="input"
-            value={ticker}
-            onChange={(e) => setTicker(e.target.value)}
-            placeholder="Or type a new ticker, e.g. RKLB"
-            autoCapitalize="characters"
-            required
-          />
-          {fieldErrors.ticker?.map((msg) => (
-            <p className="form-error" key={msg}>
-              {msg}
-            </p>
-          ))}
-        </div>
-
-        <div className="field">
-          <label>Side</label>
-          <div className="trade-badge-row">
-            {SIDE_OPTIONS.map((opt) => (
-              <button
-                type="button"
-                key={opt.value}
-                className={`trade-badge${side === opt.value ? " is-selected" : ""}`}
-                onClick={() => setSide(opt.value)}
-                title={opt.label}
-              >
-                {opt.short}
-              </button>
+        <div className="trade-compact-row">
+          <div className="field" style={{ flex: "none", width: 100 }}>
+            <label htmlFor="trade-ticker">Ticker</label>
+            <input
+              id="trade-ticker"
+              className="input"
+              value={ticker}
+              onChange={(e) => setTicker(e.target.value)}
+              placeholder="RKLB"
+              autoCapitalize="characters"
+              maxLength={TICKER_MAX_LENGTH}
+              required
+            />
+            {fieldErrors.ticker?.map((msg) => (
+              <p className="form-error" key={msg}>
+                {msg}
+              </p>
             ))}
           </div>
-        </div>
 
-        <div className="field">
-          <label>Instrument</label>
-          <div className="trade-badge-row">
-            <button
-              type="button"
-              className={`trade-badge${!isOption ? " is-selected" : ""}`}
-              onClick={() => setInstrumentType("stock")}
-            >
-              Stock
-            </button>
-            <button
-              type="button"
-              className={`trade-badge${isOption ? " is-selected" : ""}`}
-              onClick={() => {
-                if (!isOption) setInstrumentType("call");
-              }}
-            >
-              Options
-            </button>
-            {isOption && (
-              <select
-                id="trade-strike-count"
-                className="input input-sm trade-strike-count"
-                value={strikeCount}
-                onChange={(e) => setStrikeCount(Number(e.target.value))}
-                title="Strikes per side"
-                aria-label="Strikes per side"
-              >
-                {STRIKE_COUNT_OPTIONS.map((n) => (
-                  <option key={n} value={n}>
-                    {n} strikes
-                  </option>
-                ))}
-              </select>
-            )}
-          </div>
-        </div>
-
-        {isOption && (
           <div className="field">
-            <label>Expiration</label>
-            <div className="trade-badge-row trade-badge-row-nowrap">
-              {expirations.slice(0, VISIBLE_EXPIRATIONS).map((date) => (
+            <label>Side</label>
+            <div className="trade-badge-row">
+              {SIDE_OPTIONS.map((opt) => (
                 <button
                   type="button"
-                  key={date}
-                  className={`trade-badge trade-badge-sm${expiration === date ? " is-selected" : ""}`}
-                  onClick={() => setExpiration(date)}
+                  key={opt.value}
+                  className={`trade-badge${side === opt.value ? " is-selected" : ""}`}
+                  onClick={() => setSide(opt.value)}
+                  title={opt.label}
                 >
-                  {formatExpirationShort(date)}
+                  {opt.short}
                 </button>
               ))}
-              {expirations.length > VISIBLE_EXPIRATIONS && (
+            </div>
+          </div>
+
+          {priceReadout && (
+            <div className="field trade-price-readout-field">
+              <label>&nbsp;</label>
+              {priceReadout}
+            </div>
+          )}
+        </div>
+
+        <div className="trade-compact-row">
+          <div className="field">
+            <label>Instrument</label>
+            <div className="trade-badge-row">
+              <button
+                type="button"
+                className={`trade-badge${!isOption ? " is-selected" : ""}`}
+                onClick={() => setInstrumentType("stock")}
+              >
+                Stock
+              </button>
+              <button
+                type="button"
+                className={`trade-badge${isOption ? " is-selected" : ""}`}
+                onClick={() => {
+                  if (!isOption) {
+                    setInstrumentType("call");
+                    // Contracts commonly get traded one at a time -- default
+                    // to 1 rather than leaving Contracts blank, same as a
+                    // real broker's ticket. Doesn't override a quantity
+                    // that's already there (e.g. from a position badge).
+                    setQuantity((q) => q || "1");
+                  }
+                }}
+              >
+                Options
+              </button>
+              {isOption && (
                 <select
-                  className={`input input-sm trade-badge-more${
-                    expirations.slice(VISIBLE_EXPIRATIONS).includes(expiration) ? " is-selected" : ""
-                  }`}
-                  value={expirations.slice(VISIBLE_EXPIRATIONS).includes(expiration) ? expiration : ""}
-                  onChange={(e) => e.target.value && setExpiration(e.target.value)}
+                  id="trade-strike-count"
+                  className="input input-sm trade-strike-count"
+                  value={strikeCount}
+                  onChange={(e) => setStrikeCount(Number(e.target.value))}
+                  title="Strikes per side"
+                  aria-label="Strikes per side"
                 >
-                  <option value="">More…</option>
-                  {expirations.slice(VISIBLE_EXPIRATIONS).map((date) => (
-                    <option key={date} value={date}>
-                      {formatExpirationShort(date)}
+                  {STRIKE_COUNT_OPTIONS.map((n) => (
+                    <option key={n} value={n}>
+                      {n} strikes
                     </option>
                   ))}
                 </select>
               )}
-              {expirations.length === 0 && <p className="text-muted">Loading expirations…</p>}
             </div>
           </div>
-        )}
+
+          {isOption && (
+            <div className="field">
+              <label>Expiration</label>
+              <div className="trade-badge-row trade-badge-row-nowrap">
+                {expirations.slice(0, VISIBLE_EXPIRATIONS).map((date) => (
+                  <button
+                    type="button"
+                    key={date}
+                    className={`trade-badge trade-badge-sm${expiration === date ? " is-selected" : ""}`}
+                    onClick={() => setExpiration(date)}
+                  >
+                    {formatExpirationShort(date)}
+                  </button>
+                ))}
+                {expirations.length > VISIBLE_EXPIRATIONS && (
+                  <select
+                    className={`input input-sm trade-badge-more${
+                      expirations.slice(VISIBLE_EXPIRATIONS).includes(expiration) ? " is-selected" : ""
+                    }`}
+                    value={expirations.slice(VISIBLE_EXPIRATIONS).includes(expiration) ? expiration : ""}
+                    onChange={(e) => e.target.value && setExpiration(e.target.value)}
+                  >
+                    <option value="">More…</option>
+                    {expirations.slice(VISIBLE_EXPIRATIONS).map((date) => (
+                      <option key={date} value={date}>
+                        {formatExpirationShort(date)}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {expirations.length === 0 &&
+                  (debouncedTicker ? (
+                    <p className="text-muted">Loading expirations…</p>
+                  ) : (
+                    <p className="text-muted">Please enter a ticker.</p>
+                  ))}
+              </div>
+            </div>
+          )}
+        </div>
 
         {isOption && (
           <div className="field">
@@ -461,48 +521,50 @@ export function TradeModal({
             ) : (
               !chainLoading && <p className="text-muted">No live chain for this ticker/expiration -- enter strike/expiration manually.</p>
             )}
-            <div className="trade-compact-row" style={{ marginTop: "var(--space-2)" }}>
-              <div className="field">
-                <label htmlFor="trade-strike">Strike</label>
-                <input
-                  id="trade-strike"
-                  className="input input-sm"
-                  value={strike}
-                  onChange={(e) => setStrike(e.target.value)}
-                  required
-                />
-                {fieldErrors.strike?.map((msg) => (
-                  <p className="form-error" key={msg}>
-                    {msg}
-                  </p>
-                ))}
-              </div>
-              <div className="field">
-                <label htmlFor="trade-expiration">Expiration</label>
-                <input
-                  id="trade-expiration"
-                  className="input input-sm"
-                  type="date"
-                  value={expiration}
-                  onChange={(e) => setExpiration(e.target.value)}
-                  required
-                />
-                {fieldErrors.expiration?.map((msg) => (
-                  <p className="form-error" key={msg}>
-                    {msg}
-                  </p>
-                ))}
-              </div>
-            </div>
           </div>
         )}
 
         <div className="trade-compact-row">
+          {isOption && (
+            <div className="field">
+              <label htmlFor="trade-strike">Strike</label>
+              <input
+                id="trade-strike"
+                className="input input-sm"
+                value={strike}
+                onChange={(e) => setStrike(e.target.value)}
+                required
+              />
+              {fieldErrors.strike?.map((msg) => (
+                <p className="form-error" key={msg}>
+                  {msg}
+                </p>
+              ))}
+            </div>
+          )}
+          {isOption && (
+            <div className="field">
+              <label htmlFor="trade-expiration">Exp.</label>
+              <input
+                id="trade-expiration"
+                className="input input-sm"
+                type="date"
+                value={expiration}
+                onChange={(e) => setExpiration(e.target.value)}
+                required
+              />
+              {fieldErrors.expiration?.map((msg) => (
+                <p className="form-error" key={msg}>
+                  {msg}
+                </p>
+              ))}
+            </div>
+          )}
           <div className="field">
             <label htmlFor="trade-quantity">{isOption ? "Contracts" : "Shares"}</label>
             <input
               id="trade-quantity"
-              className="input"
+              className="input input-sm"
               type="number"
               min="1"
               value={quantity}
@@ -517,83 +579,16 @@ export function TradeModal({
           </div>
 
           <div className="field">
-            <div className="page-head" style={{ marginBottom: 5 }}>
-              <label htmlFor="trade-limit" style={{ margin: 0 }}>
-                Limit price (optional)
-              </label>
-              {isOption ? (
-                selectedContract ? (
-                  <span className="trade-quote" style={{ marginLeft: "auto" }}>
-                    mid ${selectedContract.mid?.toFixed(2) ?? "—"} · bid {selectedContract.bid ?? "—"} / ask{" "}
-                    {selectedContract.ask ?? "—"}
-                  </span>
-                ) : (
-                  quote?.last_price != null && (
-                    <span className="trade-quote" style={{ marginLeft: "auto" }}>
-                      underlying ${quote.last_price.toFixed(2)}
-                    </span>
-                  )
-                )
-              ) : (
-                quote?.last_price != null && (
-                  <span
-                    className={`trade-quote ${
-                      (quote.percent_change_pct ?? 0) > 0 ? "pnl-positive" : (quote.percent_change_pct ?? 0) < 0 ? "pnl-negative" : ""
-                    }`}
-                    style={{ marginLeft: "auto" }}
-                  >
-                    ${quote.last_price.toFixed(2)}
-                    {quote.percent_change_pct != null &&
-                      ` (${quote.percent_change_pct > 0 ? "+" : ""}${quote.percent_change_pct.toFixed(2)}%)`}
-                  </span>
-                )
-              )}
-            </div>
+            <label htmlFor="trade-limit">Limit</label>
             <input
               id="trade-limit"
-              className="input"
+              className="input input-sm"
               value={limitPrice}
               onChange={(e) => setLimitPrice(e.target.value)}
-              placeholder="Reject if worse than this"
+              placeholder="Reject if worse"
             />
           </div>
         </div>
-
-        {isOpening && (
-          <div className="field">
-            <label>Target / dead price (optional)</label>
-            <div className="trade-compact-row">
-              <div className="field">
-                <input
-                  id="trade-target"
-                  className="input input-sm"
-                  value={targetPrice}
-                  onChange={(e) => setTargetPrice(e.target.value)}
-                  placeholder="Take-profit"
-                />
-                {fieldErrors.target_price?.map((msg) => (
-                  <p className="form-error" key={msg}>
-                    {msg}
-                  </p>
-                ))}
-              </div>
-              <div className="field">
-                <input
-                  id="trade-dead"
-                  className="input input-sm"
-                  value={deadPrice}
-                  onChange={(e) => setDeadPrice(e.target.value)}
-                  placeholder="Stop / invalidation"
-                />
-                {fieldErrors.dead_price?.map((msg) => (
-                  <p className="form-error" key={msg}>
-                    {msg}
-                  </p>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
 
         <div className="field">
           <label htmlFor="trade-thesis">Thesis</label>
@@ -603,6 +598,42 @@ export function TradeModal({
               {msg}
             </p>
           ))}
+        </div>
+
+        <div className="field">
+          <label>Target / dead price{isOpening ? " (optional)" : " -- opening trades only"}</label>
+          <div className="trade-compact-row">
+            <div className="field">
+              <input
+                id="trade-target"
+                className="input input-sm"
+                value={targetPrice}
+                onChange={(e) => setTargetPrice(e.target.value)}
+                placeholder="Take-profit"
+                disabled={!isOpening}
+              />
+              {fieldErrors.target_price?.map((msg) => (
+                <p className="form-error" key={msg}>
+                  {msg}
+                </p>
+              ))}
+            </div>
+            <div className="field">
+              <input
+                id="trade-dead"
+                className="input input-sm"
+                value={deadPrice}
+                onChange={(e) => setDeadPrice(e.target.value)}
+                placeholder="Stop / invalidation"
+                disabled={!isOpening}
+              />
+              {fieldErrors.dead_price?.map((msg) => (
+                <p className="form-error" key={msg}>
+                  {msg}
+                </p>
+              ))}
+            </div>
+          </div>
         </div>
 
         {rejection && (

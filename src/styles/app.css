@@ -91,6 +91,176 @@
   color: var(--color-negative);
 }
 
+/* — trade modal — */
+/* Wider than the shared .dialog-lg (640px) -- the ticket packs a chain
+   table and several side-by-side compact rows that feel cramped at the
+   default width. */
+.trade-modal-dialog {
+  width: min(760px, 100%);
+}
+
+.trade-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* Expiration badges: kept to one line -- a handful of dates plus the "More"
+   dropdown for the rest, rather than wrapping to a second row. */
+.trade-badge-row-nowrap {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.trade-badge-sm {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.trade-badge-more {
+  flex: none;
+  width: auto;
+  min-height: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+}
+
+.trade-badge-more.is-selected {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Sits inline next to the Stock/Options badges, not its own full-width field
+   -- narrow on purpose, it's a 5/10/15/20/25 pick, not free text. */
+.trade-strike-count {
+  flex: none;
+  width: auto;
+  min-height: 0;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+.trade-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+
+.trade-badge:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+
+.trade-badge.is-selected {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.trade-badge-sub {
+  font-size: 11px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
+.trade-badge.is-selected .trade-badge-sub {
+  color: inherit;
+}
+
+.trade-quote {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-text) 60%, transparent);
+}
+
+/* Sits at the right edge of the Ticker/Side row -- the empty label keeps its
+   text baseline-aligned with the ticker input and side badges below it. */
+.trade-price-readout-field {
+  flex: none;
+  margin-left: auto;
+  text-align: right;
+}
+
+.trade-compact-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.trade-compact-row .field {
+  flex: 1;
+  min-width: 0;
+}
+
+.input-sm {
+  min-height: 30px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* Fidelity-style two-sided chain: calls left of strike, puts right, strike
+   as the shared spine down the middle. Clicking either side of a row picks
+   that contract (and its call/put type) -- there's no separate direction
+   here, Buy/Sell is controlled by the Side badges above. */
+.trade-chain-table th,
+.trade-chain-table td {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.trade-chain-strike {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--color-text) 4%, transparent);
+}
+
+.trade-chain-side {
+  cursor: pointer;
+}
+
+.trade-chain-side:not(.is-empty):hover {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+}
+
+.trade-chain-side.is-selected {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+  font-weight: 600;
+}
+
+.trade-chain-side.is-empty {
+  cursor: default;
+  color: color-mix(in srgb, var(--color-text) 40%, transparent);
+}
+
+/* Caps the chain to roughly 5 visible rows regardless of the strikes-per-
+   side count -- picking 25 shouldn't blow up the modal's height, it should
+   scroll. The header stays pinned so the Bid/Ask/Strike columns are still
+   labeled once you've scrolled down. */
+.trade-chain-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.trade-chain-scroll thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.trade-chain-scroll thead th {
+  background: var(--color-surface);
+}
+
 /* — competitor dashboard — */
 .competitor-hero {
   display: flex;
@@ -813,6 +983,108 @@
   cursor: default;
 }
 
+/* Mobile-only Positions tab (LeaguePage): a plain collapsible list instead
+   of the desktop scoreboard table -- name + account value collapsed, a
+   per-competitor positions list on expand. Rendered only when useIsMobile()
+   is true, so this doesn't need a matching @media guard. */
+.league-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.league-mobile-item {
+  border: 1px solid var(--color-divider);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.league-mobile-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.league-mobile-chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+  transition: transform 0.15s ease;
+}
+
+.league-mobile-chevron.is-open {
+  transform: rotate(180deg);
+}
+
+.league-mobile-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.league-mobile-value {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.league-mobile-goto svg {
+  width: 16px;
+  height: 16px;
+}
+
+.league-mobile-expand {
+  padding: 0 var(--space-3) var(--space-3);
+  border-top: 1px solid var(--color-divider);
+}
+
+.league-mobile-positions {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+}
+
+.league-mobile-position-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.league-mobile-position-row:last-child {
+  border-bottom: none;
+}
+
+.league-mobile-position-ticker {
+  flex: none;
+}
+
+.league-mobile-position-value {
+  font-variant-numeric: tabular-nums;
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.league-mobile-pending-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
 .league-transcript-entry {
   padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--color-divider);
@@ -951,5 +1223,40 @@ details.league-transcript-tool > p {
     text-transform: uppercase;
     color: color-mix(in srgb, var(--color-text) 60%, transparent);
     margin-bottom: 2px;
+  }
+
+  /* Tables of comparable rows (leaderboard, open positions, trade log) read
+     better as a real table on mobile than as one card per row -- .table-scroll
+     keeps the grid so values line up across rows, scrolling horizontally
+     instead of stacking. The first column stays pinned as the anchor for
+     whichever row you're reading. A colSpan detail row (an expanded panel,
+     a thesis) opts out via .league-expanded-cell since it isn't tabular data
+     and shouldn't be squeezed onto one line or pinned in place. */
+  .table-wrap.table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .table-wrap.table-scroll table {
+    width: max-content;
+    min-width: 100%;
+  }
+
+  .table-wrap.table-scroll th,
+  .table-wrap.table-scroll td {
+    white-space: nowrap;
+  }
+
+  .table-wrap.table-scroll th:first-child,
+  .table-wrap.table-scroll td:first-child {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--color-surface);
+  }
+
+  .table-wrap.table-scroll td.league-expanded-cell {
+    white-space: normal;
+    position: static;
   }
 }

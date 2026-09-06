@@ -773,10 +773,11 @@ export function LeaguePage() {
               {tradesLoading && !trades && <p className="text-muted">Loading trades…</p>}
               {trades && trades.length === 0 && <p className="text-muted">No trades in this range.</p>}
 
-              {trades && trades.length > 0 && isMobile && (
+              {trades && trades.length > 0 && (
                 <div className="league-mobile-list">
                   {trades.map((t) => {
                     const expanded = t.id === expandedTradeId;
+                    const label = `${t.ticker}${t.instrument_type !== "stock" ? ` ${t.instrument_type} ${t.strike}` : ""}`;
                     return (
                       <div className="league-mobile-item" key={t.id}>
                         <div
@@ -797,9 +798,11 @@ export function LeaguePage() {
                             <path d="M6 9l6 6 6-6" />
                           </svg>
                           <span className="league-mobile-name">
-                            {truncateLabel(
-                              `${t.ticker}${t.instrument_type !== "stock" ? ` ${t.instrument_type} ${t.strike}` : ""}`,
-                              15,
+                            {isMobile ? truncateLabel(label, 15) : label}
+                            {!isMobile && (
+                              <span className="league-mobile-trade-competitor">
+                                {t.competitor_name} · {t.competitor_kind === "ai" ? "AI" : "YOU"}
+                              </span>
                             )}
                           </span>
                           <span className="league-mobile-trade-price">
@@ -816,30 +819,20 @@ export function LeaguePage() {
                                 <span className="league-mobile-position-ticker">When</span>
                                 <span className="league-mobile-position-value">{formatDateTime(t.created_at)}</span>
                               </li>
-                              <li className="league-mobile-position-row">
-                                <span className="league-mobile-position-ticker">Competitor</span>
-                                <span className="league-mobile-position-value">
-                                  {t.competitor_name}{" "}
-                                  <span className={`tag ${t.competitor_kind === "ai" ? "tag-outline" : "tag-accent"}`}>
-                                    {t.competitor_kind === "ai" ? "AI" : "YOU"}
+                              {isMobile && (
+                                <li className="league-mobile-position-row">
+                                  <span className="league-mobile-position-ticker">Competitor</span>
+                                  <span className="league-mobile-position-value">
+                                    {t.competitor_name}{" "}
+                                    <span className={`tag ${t.competitor_kind === "ai" ? "tag-outline" : "tag-accent"}`}>
+                                      {t.competitor_kind === "ai" ? "AI" : "YOU"}
+                                    </span>
                                   </span>
-                                </span>
-                              </li>
+                                </li>
+                              )}
                               <li className="league-mobile-position-row">
                                 <span className="league-mobile-position-ticker">Qty</span>
                                 <span className="league-mobile-position-value">{t.quantity}</span>
-                              </li>
-                              <li className="league-mobile-position-row">
-                                <span className="league-mobile-position-ticker">Fill</span>
-                                <span className="league-mobile-position-value">
-                                  {t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}
-                                </span>
-                              </li>
-                              <li className="league-mobile-position-row">
-                                <span className="league-mobile-position-ticker">Status</span>
-                                <span className="league-mobile-position-value">
-                                  <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
-                                </span>
                               </li>
                             </ul>
                             {t.status === "rejected" && <p className="card-meta">{t.rejection_reason}</p>}
@@ -867,60 +860,6 @@ export function LeaguePage() {
                       </div>
                     );
                   })}
-                </div>
-              )}
-
-              {trades && trades.length > 0 && !isMobile && (
-                <div className="table-wrap stack-mobile">
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>When</th>
-                        <th>Competitor</th>
-                        <th>Side</th>
-                        <th>Ticker</th>
-                        <th>Qty</th>
-                        <th>Fill</th>
-                        <th>Status</th>
-                        <th>Thesis</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {trades.map((t) => (
-                        <tr key={t.id}>
-                          <td data-label="When">{formatDateTime(t.created_at)}</td>
-                          <td data-label="Competitor">
-                            {t.competitor_name}{" "}
-                            <span className={`tag ${t.competitor_kind === "ai" ? "tag-outline" : "tag-accent"}`}>
-                              {t.competitor_kind === "ai" ? "AI" : "YOU"}
-                            </span>
-                          </td>
-                          <td data-label="Side">{t.side}</td>
-                          <td data-label="Ticker">
-                            {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
-                          </td>
-                          <td data-label="Qty">{t.quantity}</td>
-                          <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
-                          <td data-label="Status">
-                            <span className={`tag ${tradeStatusTagClass(t.status)}`}>{TRADE_STATUS_LABELS[t.status]}</span>
-                            {t.status === "rejected" && <div className="card-meta">{t.rejection_reason}</div>}
-                            {t.status === "pending" && <div className="card-meta">Fills at next open</div>}
-                            {t.status === "pending" && t.competitor_kind === "human" && (
-                              <button
-                                type="button"
-                                className="btn btn-secondary"
-                                onClick={() => handleCancelTrade(t.competitor_id, t.id)}
-                                disabled={cancelingTradeId === t.id}
-                              >
-                                {cancelingTradeId === t.id ? "Cancelling…" : "Cancel"}
-                              </button>
-                            )}
-                          </td>
-                          <td data-label="Thesis">{t.thesis}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
                 </div>
               )}
               {cancelError && <p className="form-error">{cancelError}</p>}

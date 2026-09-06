@@ -1067,6 +1067,16 @@
   color: color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 
+/* Desktop-only: who made the trade, appended after the ticker label in the
+   collapsed row (mobile keeps Competitor tucked in the expanded row instead,
+   there's no room for it collapsed on a phone width). */
+.league-mobile-trade-competitor {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
 .league-mobile-goto svg {
   width: 16px;
   height: 16px;

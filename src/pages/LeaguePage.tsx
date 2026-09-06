@@ -642,7 +642,7 @@ export function LeaguePage() {
                     </div>
                     {expanded && (
                       <div className="league-mobile-expand">
-                        <MobilePositionsPanel competitorId={c.id} refreshSignal={refreshSignal} />
+                        <PositionsOnlyPanel competitorId={c.id} refreshSignal={refreshSignal} />
                       </div>
                     )}
                   </div>
@@ -713,13 +713,17 @@ export function LeaguePage() {
                         {c.id === selectedId && summary && (
                           <tr>
                             <td colSpan={9} className="league-expanded-cell">
-                              <CompetitorPanel
-                                summary={summary}
-                                models={models}
-                                refreshSignal={refreshSignal}
-                                onTradeFilled={() => competition && loadCompetitionData(competition.id).catch(() => {})}
-                                onCollapse={() => setSelectedId(null)}
-                              />
+                              {summary.kind === "ai" ? (
+                                <PositionsOnlyPanel competitorId={c.id} refreshSignal={refreshSignal} />
+                              ) : (
+                                <CompetitorPanel
+                                  summary={summary}
+                                  models={models}
+                                  refreshSignal={refreshSignal}
+                                  onTradeFilled={() => competition && loadCompetitionData(competition.id).catch(() => {})}
+                                  onCollapse={() => setSelectedId(null)}
+                                />
+                              )}
                             </td>
                           </tr>
                         )}
@@ -883,10 +887,13 @@ export function LeaguePage() {
   );
 }
 
-// Mobile Positions tab: expanding a competitor here shows just their open
-// positions (no trades/reasoning tabs, no budget bars) -- a lighter fetch and
-// a much shorter render than CompetitorPanel, which the desktop table still uses.
-function MobilePositionsPanel({ competitorId, refreshSignal }: { competitorId: number; refreshSignal: number }) {
+// Expanding an AI competitor's row shows just their open positions -- no
+// trades/reasoning tabs, no system prompt, no budget bars, no wake button.
+// Used on mobile for every competitor (the compact list has no room for
+// more), and on desktop for AI competitors specifically -- a human
+// competitor's own row still gets the full CompetitorPanel there, since
+// that's also where the New Trade / Sell / Buy-to-close buttons live.
+function PositionsOnlyPanel({ competitorId, refreshSignal }: { competitorId: number; refreshSignal: number }) {
   const [detail, setDetail] = useState<CompetitorDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -907,7 +914,7 @@ function MobilePositionsPanel({ competitorId, refreshSignal }: { competitorId: n
   if (detail.positions.length === 0) return <p className="text-muted">No open positions.</p>;
 
   return (
-    <ul className="league-mobile-positions">
+    <ul className="league-mobile-positions league-positions-only">
       {detail.positions.map((p, i) => {
         const pnl = positionPnl(p);
         return (

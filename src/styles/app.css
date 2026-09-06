@@ -1093,6 +1093,14 @@
   padding: 0;
 }
 
+/* Desktop's AI-competitor row expand -- deliberately small (a quick glance
+   at positions, not a dashboard), so it doesn't stretch across the full
+   colSpan width of the scoreboard table. */
+.league-positions-only {
+  max-width: 320px;
+  margin-top: 0;
+}
+
 .league-mobile-position-row {
   display: flex;
   align-items: baseline;

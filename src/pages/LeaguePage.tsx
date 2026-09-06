@@ -139,6 +139,13 @@ function rejectionLabel(code: string): string {
   return REJECTION_CODE_LABELS[code as keyof typeof REJECTION_CODE_LABELS] ?? code;
 }
 
+// Keeps the mobile trades list's collapsed label (ticker + instrument, e.g.
+// "SPY call 768") to one short line regardless of how verbose an option
+// description gets -- the full ticker/instrument is still in the expanded row.
+function truncateLabel(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
 function computeDayInfo(startDate: string, endDate: string): { dayNum: number; totalDays: number } {
   const msPerDay = 86_400_000;
   const start = new Date(`${startDate}T00:00:00`);
@@ -790,7 +797,13 @@ export function LeaguePage() {
                             <path d="M6 9l6 6 6-6" />
                           </svg>
                           <span className="league-mobile-name">
-                            {t.ticker} {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike}`}
+                            {truncateLabel(
+                              `${t.ticker}${t.instrument_type !== "stock" ? ` ${t.instrument_type} ${t.strike}` : ""}`,
+                              15,
+                            )}
+                          </span>
+                          <span className="league-mobile-trade-price">
+                            {t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}
                           </span>
                           <span className={`tag ${tradeStatusTagClass(t.status)} league-mobile-value`}>
                             {t.side.replace(/_/g, " ").toUpperCase()}

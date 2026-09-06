@@ -509,6 +509,19 @@
   border-radius: var(--radius-md);
 }
 
+/* The bell isn't necessarily near the screen's right edge on mobile (a
+   theme toggle and logout button sit after it in the nav), so anchoring the
+   dropdown to the bell's own edge can push most of it off-screen. Switch to
+   a viewport-relative fixed position instead -- `top` comes from JS
+   (NotificationBell measures the bell's actual position), left/right just
+   pin it to the screen's own margins so it's always fully visible. */
+.notif-menu-mobile {
+  position: fixed;
+  left: var(--space-3);
+  right: var(--space-3);
+  width: auto;
+}
+
 .notif-item {
   display: flex;
   flex-direction: column;
@@ -541,6 +554,15 @@
   z-index: 30;
   border-radius: 999px;
   padding: var(--space-2) var(--space-4);
+  touch-action: none;
+}
+
+/* Dragging swaps positioning to explicit left/top (set inline) so the
+   button can sit anywhere on screen instead of just its default corner. */
+.chat-fab.is-dragging {
+  transition: none;
+  opacity: 0.85;
+  cursor: grabbing;
 }
 
 .chat-drawer {
@@ -1033,6 +1055,16 @@
 .league-mobile-value {
   flex: none;
   font-variant-numeric: tabular-nums;
+}
+
+/* Sits between the truncated ticker label and the side badge on the mobile
+   trades list -- small and muted since it's secondary context, not the row's
+   main label. */
+.league-mobile-trade-price {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 
 .league-mobile-goto svg {

@@ -103,6 +103,21 @@ export function formatTime(value: string | null | undefined): string {
   return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
 }
 
+/** Time-only for a same-day wake-up (formatTime, above), but a bare M/DD
+ *  date once it's from a previous day -- a lone time ("2:14 PM") reads as
+ *  "this morning" even when it's actually from last week, so the moment it
+ *  isn't today this switches to something that can't be misread that way. */
+export function formatLastWoke(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const now = new Date();
+  const isToday =
+    date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
+  if (isToday) return formatTime(value);
+  return `${date.getMonth() + 1}/${String(date.getDate()).padStart(2, "0")}`;
+}
+
 export function formatDateTime(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);

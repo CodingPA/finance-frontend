@@ -5,6 +5,7 @@
 
 import { NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useChat } from "../context/ChatContext";
 
 const TABS = [
   {
@@ -33,6 +34,7 @@ const TABS = [
 
 export function BottomNav() {
   const { user, status } = useAuth();
+  const { open, setOpen } = useChat();
   if (status !== "authenticated" || !user) return null;
 
   return (
@@ -50,6 +52,20 @@ export function BottomNav() {
           <span>{tab.label}</span>
         </NavLink>
       ))}
+      {/* Not a route -- opens the ChatAssistant drawer (shared via
+          ChatContext) instead of navigating. Last in the list, so it sits
+          at the far right of the bar. */}
+      <button
+        type="button"
+        className={`bottom-nav-tab${open ? " is-active" : ""}`}
+        onClick={() => setOpen(true)}
+        aria-label="Open chat assistant"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5c-1.35 0-2.61-.32-3.73-.88L3 21l1.9-5.7A8.5 8.5 0 1 1 21 11.5Z" />
+        </svg>
+        <span>Chat</span>
+      </button>
     </nav>
   );
 }

@@ -11,6 +11,7 @@ import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
 import {
   formatDateTime,
+  formatLastWoke,
   formatPrice,
   formatSignedPercent,
   formatSignedUsd,
@@ -409,6 +410,8 @@ export function LeaguePage() {
   const handleWakeAll = async () => {
     const targets = competitors.filter((c) => c.kind === "ai").slice(0, WAKE_ALL_MAX);
     if (targets.length === 0) return;
+    const noun = targets.length === 1 ? "AI agent" : "AI agents";
+    if (!window.confirm(`You are about to wake up ${targets.length} ${noun}. Do you want to do this?`)) return;
     setWakingAll(true);
     setWakeAllError(null);
     let failures = 0;
@@ -502,35 +505,71 @@ export function LeaguePage() {
       <div className="page-head">
         <h2>Paper Trading League</h2>
         {competition && (
-          <>
+          <div className="league-header-actions">
             {humanCompetitor && (
-              <button type="button" className="btn btn-secondary" style={{ marginLeft: "auto" }} onClick={openNewTrade}>
-                New trade
+              <button type="button" className="btn btn-secondary" onClick={openNewTrade}>
+                {isMobile ? "Trade" : "New trade"}
               </button>
             )}
             <button
               type="button"
               className="btn btn-secondary"
-              style={humanCompetitor ? undefined : { marginLeft: "auto" }}
               onClick={handleRefreshScoreboard}
               disabled={refreshingScoreboard}
               title="Force a live re-quote of every open position, right now"
             >
-              {refreshingScoreboard ? "Refreshing…" : "Refresh prices"}
+              {isMobile && (
+                <svg
+                  className="league-header-icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M23 4v6h-6" />
+                  <path d="M1 20v-6h6" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+              )}
+              {isMobile ? (refreshingScoreboard ? "…" : "Prices") : refreshingScoreboard ? "Refreshing…" : "Refresh prices"}
             </button>
             <button
               type="button"
-              className="btn btn-secondary"
+              className={`btn btn-secondary${isMobile ? " btn-icon-sm" : ""}`}
               onClick={handleWakeAll}
               disabled={wakingAll || aiCompetitorCount === 0}
-              title={`Wakes up to ${WAKE_ALL_MAX} AI competitors, ${WAKE_ALL_DELAY_MS / 1000}s apart`}
+              title={wakingAll ? "Waking…" : `Wakes up to ${WAKE_ALL_MAX} AI competitors, ${WAKE_ALL_DELAY_MS / 1000}s apart`}
+              aria-label="Wake up all"
             >
-              {wakingAll ? "Waking…" : "Wake up all"}
+              {isMobile ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+                </svg>
+              ) : wakingAll ? (
+                "Waking…"
+              ) : (
+                "Wake up all"
+              )}
             </button>
-            <button type="button" className="btn btn-primary" onClick={() => setAddModalOpen(true)}>
-              Add competitor
+            <button
+              type="button"
+              className={`btn btn-primary${isMobile ? " btn-icon-sm" : ""}`}
+              onClick={() => setAddModalOpen(true)}
+              aria-label="Add competitor"
+              title={isMobile ? "Add competitor" : undefined}
+            >
+              {isMobile ? (
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              ) : (
+                "Add competitor"
+              )}
             </button>
-          </>
+          </div>
         )}
       </div>
 
@@ -738,7 +777,9 @@ export function LeaguePage() {
                           <td data-label="# Positions">{positionCounts.get(c.id) ?? "—"}</td>
                           <td data-label="Trades">{c.filled_trades_count}</td>
                           <td data-label="API cost">{c.api_cost_usd !== null ? formatUsd(Number(c.api_cost_usd)) : "—"}</td>
-                          <td data-label="Last woke">{c.last_woke_at ? formatTime(c.last_woke_at) : "never"}</td>
+                          <td data-label="Last woke" title={c.last_woke_at ? formatDateTime(c.last_woke_at) : undefined}>
+                            {c.last_woke_at ? formatLastWoke(c.last_woke_at) : "never"}
+                          </td>
                           <td data-label="Actions" onClick={(e) => e.stopPropagation()}>
                             <Link to={`/league/competitors/${c.id}`} className="btn btn-secondary">
                               Dashboard

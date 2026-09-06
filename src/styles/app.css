@@ -242,6 +242,25 @@
   color: color-mix(in srgb, var(--color-text) 40%, transparent);
 }
 
+/* Caps the chain to roughly 5 visible rows regardless of the strikes-per-
+   side count -- picking 25 shouldn't blow up the modal's height, it should
+   scroll. The header stays pinned so the Bid/Ask/Strike columns are still
+   labeled once you've scrolled down. */
+.trade-chain-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.trade-chain-scroll thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.trade-chain-scroll thead th {
+  background: var(--color-surface);
+}
+
 /* — competitor dashboard — */
 .competitor-hero {
   display: flex;

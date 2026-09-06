@@ -247,29 +247,21 @@ export function TradeModal({
     (c) => String(c.strike_price) === String(Number(strike || NaN)) && c.expiration_date === expiration,
   );
 
-  // Live price context, shown top-right next to Ticker/Side -- mid/bid/ask
-  // for a picked contract, the underlying's price while still choosing one,
-  // or last price/% change for a stock trade.
-  const priceReadout = isOption ? (
-    selectedContract ? (
-      <span className="trade-quote">
-        mid ${selectedContract.mid?.toFixed(2) ?? "—"} · bid {selectedContract.bid ?? "—"} / ask {selectedContract.ask ?? "—"}
-      </span>
-    ) : (
-      quote?.last_price != null && <span className="trade-quote">underlying ${quote.last_price.toFixed(2)}</span>
-    )
-  ) : (
-    quote?.last_price != null && (
-      <span
-        className={`trade-quote ${
-          (quote.percent_change_pct ?? 0) > 0 ? "pnl-positive" : (quote.percent_change_pct ?? 0) < 0 ? "pnl-negative" : ""
-        }`}
-      >
-        ${quote.last_price.toFixed(2)}
-        {quote.percent_change_pct != null &&
-          ` (${quote.percent_change_pct > 0 ? "+" : ""}${quote.percent_change_pct.toFixed(2)}%)`}
-      </span>
-    )
+  // Live underlying price, shown top-right next to Ticker/Side -- always the
+  // ticker's own quote, whether trading the stock or an option on it. A
+  // selected contract's own mid/bid/ask is already visible in the chain
+  // table itself, so this readout doesn't switch to that -- showing the
+  // same two numbers twice would be redundant.
+  const priceReadout = quote?.last_price != null && (
+    <span
+      className={`trade-quote ${
+        (quote.percent_change_pct ?? 0) > 0 ? "pnl-positive" : (quote.percent_change_pct ?? 0) < 0 ? "pnl-negative" : ""
+      }`}
+    >
+      ${quote.last_price.toFixed(2)}
+      {quote.percent_change_pct != null &&
+        ` (${quote.percent_change_pct > 0 ? "+" : ""}${quote.percent_change_pct.toFixed(2)}%)`}
+    </span>
   );
 
   // Picking either side of a chain row commits to that contract's own type
@@ -475,7 +467,7 @@ export function TradeModal({
           <div className="field">
             <label>Chain{chainLoading ? " (loading…)" : ""}</label>
             {chainRows.length > 0 ? (
-              <div className="table-wrap">
+              <div className="table-wrap trade-chain-scroll">
                 <table className="table trade-chain-table">
                   <thead>
                     <tr>

@@ -127,6 +127,11 @@ export function ChatAssistant() {
   // .chat-fab position).
   const [fabPosition, setFabPosition] = useState<FabPosition | null>(() => loadFabPosition());
   const [fabDragging, setFabDragging] = useState(false);
+  // Suppresses the click that follows a completed drag -- a plain ref
+  // rather than state, since the browser's click event dispatches
+  // synchronously right after pointerup, ahead of whenever React would
+  // actually flush a state update.
+  const justDraggedRef = useRef(false);
 
   // Every click of the floating button is a new chat: reset to a blank,
   // not-yet-created conversation and reload the ticker/model context.
@@ -393,11 +398,7 @@ export function ChatAssistant() {
   // (the click fires normally since nothing here calls preventDefault
   // before the long-press timer commits), but holding past FAB_LONG_PRESS_MS
   // switches to drag-follow and, on release, suppresses that same click via
-  // justDraggedRef -- a plain ref rather than state, since the browser's
-  // click event dispatches synchronously right after pointerup, ahead of
-  // whenever React would actually flush a state update.
-  const justDraggedRef = useRef(false);
-
+  // justDraggedRef (declared above, alongside the other FAB state).
   const handleFabPointerDown = (e: ReactPointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     justDraggedRef.current = false;

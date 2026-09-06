@@ -132,6 +132,38 @@ export function ChatAssistant() {
   // synchronously right after pointerup, ahead of whenever React would
   // actually flush a state update.
   const justDraggedRef = useRef(false);
+  const fabRef = useRef<HTMLButtonElement>(null);
+
+  // A position saved while the window was one size (e.g. a phone-width
+  // browser, or a resized/emulated viewport) can land off-screen -- or just
+  // somewhere unexpected -- once the window is a different size (a real
+  // desktop width). Re-clamp against the *current* viewport on mount and on
+  // resize so a saved spot never renders the button somewhere you can't see
+  // or reach it.
+  useEffect(() => {
+    if (open) return;
+    const clampToViewport = () => {
+      const btn = fabRef.current;
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      setFabPosition((pos) => {
+        if (!pos) return pos;
+        const maxLeft = Math.max(FAB_EDGE_MARGIN, window.innerWidth - rect.width - FAB_EDGE_MARGIN);
+        const maxTop = Math.max(FAB_EDGE_MARGIN, window.innerHeight - rect.height - FAB_EDGE_MARGIN);
+        const next = { left: clamp(pos.left, FAB_EDGE_MARGIN, maxLeft), top: clamp(pos.top, FAB_EDGE_MARGIN, maxTop) };
+        if (next.left === pos.left && next.top === pos.top) return pos;
+        try {
+          localStorage.setItem(FAB_POSITION_STORAGE_KEY, JSON.stringify(next));
+        } catch {
+          // Best-effort, same as everywhere else this gets persisted.
+        }
+        return next;
+      });
+    };
+    clampToViewport();
+    window.addEventListener("resize", clampToViewport);
+    return () => window.removeEventListener("resize", clampToViewport);
+  }, [open]);
 
   // Every click of the floating button is a new chat: reset to a blank,
   // not-yet-created conversation and reload the ticker/model context.
@@ -485,6 +517,7 @@ export function ChatAssistant() {
     <>
       {!open && (
         <button
+          ref={fabRef}
           type="button"
           className={`chat-fab btn btn-primary elev-md${fabDragging ? " is-dragging" : ""}`}
           style={fabPosition ? { left: fabPosition.left, top: fabPosition.top, right: "auto", bottom: "auto" } : undefined}

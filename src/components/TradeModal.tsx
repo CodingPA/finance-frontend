@@ -519,6 +519,20 @@ export function TradeModal({
         <div className="trade-compact-row">
           {isOption && (
             <div className="field">
+              <label htmlFor="trade-option-type">Call/Put</label>
+              <select
+                id="trade-option-type"
+                className="input input-sm"
+                value={instrumentType === "put" ? "put" : "call"}
+                onChange={(e) => setInstrumentType(e.target.value as InstrumentType)}
+              >
+                <option value="call">Call</option>
+                <option value="put">Put</option>
+              </select>
+            </div>
+          )}
+          {isOption && (
+            <div className="field">
               <label htmlFor="trade-strike">Strike</label>
               <input
                 id="trade-strike"

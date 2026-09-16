@@ -37,6 +37,15 @@ export function formatPrice(value: number | null | undefined): string {
   return `$${value.toFixed(2)}`;
 }
 
+/** Full-precision, comma-separated dollar amount -- for a total that has to
+ *  stay exact (e.g. a trade's order total) rather than being read as a
+ *  rounded magnitude the way formatUsd's abbreviated K/M/B figures are. */
+export function formatUsdExact(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const sign = value < 0 ? "-" : "";
+  return `${sign}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export function formatMultiple(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return `${value.toFixed(1)}×`;
@@ -116,6 +125,16 @@ export function formatLastWoke(value: string | null | undefined): string {
     date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate();
   if (isToday) return formatTime(value);
   return `${date.getMonth() + 1}/${String(date.getDate()).padStart(2, "0")}`;
+}
+
+/** Compact date + time (e.g. "Sep 15, 2:14 PM") -- no year, no timezone
+ *  name, for a table/row where formatDateTime's full form ("Sep 15, 2026,
+ *  2:14 PM EDT") is too wide to sit inline with other columns. */
+export function formatShortDateTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
 export function formatDateTime(value: string | null | undefined): string {

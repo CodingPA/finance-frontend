@@ -239,6 +239,15 @@ export interface CompetitorDetail {
   positions: Position[];
 }
 
+/** Total dollar amount a fill was worth -- fill_price is per-share (stock)
+ *  or per-contract (options, the premium), same *100 contract-multiplier
+ *  convention as positionPnl below. Null until the trade actually fills. */
+export function tradeOrderTotal(t: Trade): number | null {
+  if (!t.fill_price) return null;
+  const multiplier = t.instrument_type === "stock" ? 1 : 100;
+  return Number(t.fill_price) * t.quantity * multiplier;
+}
+
 /** Unrealized P/L for one open position, in dollars. avg_cost is per-share
  *  (stock) or per-contract (options, the premium) -- multiply by
  *  quantity * 100 for the total dollar cost/credit, same convention

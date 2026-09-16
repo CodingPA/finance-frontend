@@ -13,10 +13,12 @@ import {
   formatDateTime,
   formatLastWoke,
   formatPrice,
+  formatShortDateTime,
   formatSignedPercent,
   formatSignedUsd,
   formatTime,
   formatUsd,
+  formatUsdExact,
   parseDateOnly,
 } from "../lib/format";
 import { AddCompetitorModal } from "../components/AddCompetitorModal";
@@ -37,6 +39,7 @@ import {
   pnlClass,
   positionPnl,
   refreshCompetition,
+  tradeOrderTotal,
   triggerWakeup,
   REJECTION_CODE_LABELS,
   tradeStatusTagClass,
@@ -847,7 +850,9 @@ export function LeaguePage() {
                 <div className="league-mobile-list">
                   {trades.map((t) => {
                     const expanded = t.id === expandedTradeId;
-                    const label = `${t.ticker}${t.instrument_type !== "stock" ? ` ${t.instrument_type} ${t.strike}` : ""}`;
+                    const strikeLabel = t.strike ? Number(t.strike).toFixed(2) : t.strike;
+                    const label = `${t.ticker}${t.instrument_type !== "stock" ? ` ${t.instrument_type} ${strikeLabel}` : ""}`;
+                    const orderTotal = tradeOrderTotal(t);
                     return (
                       <div className="league-mobile-item" key={t.id}>
                         <div
@@ -876,8 +881,22 @@ export function LeaguePage() {
                             )}
                           </span>
                           <span className="league-mobile-trade-price">
-                            {t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}
+                            {isMobile
+                              ? orderTotal !== null
+                                ? formatUsdExact(orderTotal)
+                                : "—"
+                              : t.fill_price
+                                ? formatPrice(Number(t.fill_price))
+                                : "—"}
                           </span>
+                          {!isMobile && (
+                            <span className="league-mobile-trade-meta">
+                              Qty {t.quantity} · Total {orderTotal !== null ? formatUsdExact(orderTotal) : "—"}
+                            </span>
+                          )}
+                          {!isMobile && (
+                            <span className="league-mobile-trade-meta">{formatShortDateTime(t.created_at)}</span>
+                          )}
                           <span className={`tag ${tradeStatusTagClass(t.status)} league-mobile-value`}>
                             {t.side.replace(/_/g, " ").toUpperCase()}
                           </span>

@@ -1089,6 +1089,18 @@
   color: color-mix(in srgb, var(--color-text) 55%, transparent);
 }
 
+/* Desktop-only: qty/order-total and when-it-happened, appended after the
+   unit price in the collapsed row so the row is scannable without expanding
+   it. Not shown on mobile -- there's no room, and the price slot already
+   switches to order total there instead. */
+.league-mobile-trade-meta {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+
 /* Desktop-only: who made the trade, appended after the ticker label in the
    collapsed row (mobile keeps Competitor tucked in the expanded row instead,
    there's no room for it collapsed on a phone width). */

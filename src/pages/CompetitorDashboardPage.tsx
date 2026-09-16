@@ -11,7 +11,16 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useIsMobile } from "../hooks/useIsMobile";
 import { realtime, LeagueFeedSocket } from "../lib/ws";
 import { extractGenericMessage } from "../lib/formErrors";
-import { formatDateTime, formatPercent, formatPrice, formatSignedUsd, formatTime, formatUsd, parseDateOnly } from "../lib/format";
+import {
+  formatDateTime,
+  formatPercent,
+  formatPrice,
+  formatShortDateTime,
+  formatSignedUsd,
+  formatUsd,
+  formatUsdExact,
+  parseDateOnly,
+} from "../lib/format";
 import { Markdown } from "../components/Markdown";
 import { TradeModal } from "../components/TradeModal";
 import { TurnTranscriptModal } from "../components/TurnTranscriptModal";
@@ -34,6 +43,7 @@ import {
   positionPnl,
   positionToTradePrefill,
   refreshCompetitor,
+  tradeOrderTotal,
   triggerWakeup,
   TURN_TRIGGER_LABELS,
   type CompetitorDetail,
@@ -529,31 +539,38 @@ export function CompetitorDashboardPage() {
                           <th>When</th>
                           <th>Side</th>
                           <th>Instrument</th>
+                          <th>Qty</th>
                           <th>Fill</th>
                           <th>Limit</th>
+                          <th>Order total</th>
                           <th>Result</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {trades.map((t) => (
+                        {trades.map((t) => {
+                          const orderTotal = tradeOrderTotal(t);
+                          return (
                           <Fragment key={t.id}>
                             <tr
                               onClick={() => setExpandedTradeId((prev) => (prev === t.id ? null : t.id))}
                               className={t.id === expandedTradeId ? "league-row-active" : undefined}
                               style={{ cursor: "pointer" }}
                             >
-                              <td data-label="When">{formatTime(t.created_at)}</td>
+                              <td data-label="When">{formatShortDateTime(t.created_at)}</td>
                               <td data-label="Side">
                                 <strong>{t.side.replace("_", " ").toUpperCase()}</strong>
                               </td>
                               <td data-label="Instrument">
                                 <strong>{t.ticker}</strong>{" "}
-                                {t.instrument_type !== "stock" && `${t.instrument_type} $${t.strike} exp ${formatShortDate(t.expiration)}`}
+                                {t.instrument_type !== "stock" &&
+                                  `${t.instrument_type} $${t.strike ? Number(t.strike).toFixed(2) : t.strike} exp ${formatShortDate(t.expiration)}`}
                               </td>
+                              <td data-label="Qty">{t.quantity}</td>
                               <td data-label="Fill">{t.fill_price ? formatPrice(Number(t.fill_price)) : "—"}</td>
                               <td data-label="Limit" className="text-muted">
                                 {t.limit_price ? formatPrice(Number(t.limit_price)) : "—"}
                               </td>
+                              <td data-label="Order total">{orderTotal !== null ? formatUsdExact(orderTotal) : "—"}</td>
                               <td data-label="Result" className={t.status !== "filled" ? "text-muted" : undefined}>
                                 {t.status === "pending" && "\u{1F550} "}
                                 {tradeResultLabel(t)}
@@ -561,7 +578,7 @@ export function CompetitorDashboardPage() {
                             </tr>
                             {expandedTradeId === t.id && (
                               <tr>
-                                <td colSpan={6} className="league-expanded-cell">
+                                <td colSpan={8} className="league-expanded-cell">
                                   <div className="card-kicker">Thesis</div>
                                   <p className="card-body">{t.thesis}</p>
                                   {t.status === "rejected" && <p className="form-error">{t.rejection_reason}</p>}
@@ -588,7 +605,8 @@ export function CompetitorDashboardPage() {
                               </tr>
                             )}
                           </Fragment>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   )}

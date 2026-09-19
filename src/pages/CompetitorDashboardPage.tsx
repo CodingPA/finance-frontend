@@ -64,6 +64,13 @@ import {
 // forever (finance-backend/docs/league-api.md's "Building the manual-refresh button").
 const REFRESH_FALLBACK_MS = 15_000;
 
+// Same fallback idea as REFRESH_FALLBACK_MS, but much longer -- a wake-up is
+// a full LLM turn (tool calls, possibly a trade), not a quote refresh, and
+// the backend explicitly calls out cases where no event ever arrives at all
+// (a competitor with no owning user gets zero WS pushes). Without this the
+// button would stay disabled forever in that case.
+const WAKEUP_FALLBACK_MS = 5 * 60_000;
+
 // Trades don't carry per-trade realized P/L or a close reason (target_price/
 // dead_price live on Position, not Trade -- they're revisable anytime, so a
 // Trade-level snapshot would go stale the moment a competitor moved a stop
@@ -106,7 +113,10 @@ export function CompetitorDashboardPage() {
   const [tradeModalTarget, setTradeModalTarget] = useState<"new" | Position | null>(null);
   const [openTurnId, setOpenTurnId] = useState<number | null>(null);
   const [expandedTurnId, setExpandedTurnId] = useState<number | null>(null);
-  const [waking, setWaking] = useState(false);
+  // "queued" from the 202 response, "thinking" once league.wakeup_started
+  // lands for this wakeup_id -- null means the button is idle/clickable.
+  const [wakeup, setWakeup] = useState<{ id: number; phase: "queued" | "thinking" } | null>(null);
+  const wakeupTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [competitionId, setCompetitionId] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -204,7 +214,11 @@ export function CompetitorDashboardPage() {
   }, [competitorId, detail?.kind, refreshSignal]);
 
   // league.trade_activity / league.wakeup_complete / league.wakeup_failed --
-  // only refresh for pushes about this competitor, not every AI in the league.
+  // only refresh for pushes about this competitor, not every AI in the
+  // league. These are also the terminal events for the wake-up button's
+  // lifecycle (queued -> thinking -> idle) -- clear it here rather than a
+  // separate subscription, since the competitor_id filter already needed
+  // for the refresh is the same filter the wakeup_id match needs.
   useEffect(() => {
     return realtime.on("notification.new", (message) => {
       const type = message.notification_type;
@@ -212,9 +226,53 @@ export function CompetitorDashboardPage() {
       const payload = message.payload;
       if (payload && typeof payload === "object" && (payload as Record<string, unknown>).competitor_id === competitorId) {
         setRefreshSignal((k) => k + 1);
+        const wakeupId = (payload as Record<string, unknown>).wakeup_id;
+        if (typeof wakeupId === "number") {
+          setWakeup((prev) => (prev && prev.id === wakeupId ? null : prev));
+        }
       }
     });
   }, [competitorId]);
+
+  // league.wakeup_started -- a plain push on the same /ws/user/ socket, NOT
+  // wrapped in notification.new (unpersisted: if a reconnect misses it,
+  // there's nothing to redeliver, so this just leaves the button on
+  // "Queued…" until the terminal event above arrives or the fallback below
+  // fires). Read defensively since the payload nesting isn't fully pinned
+  // down -- fall back to the top-level message if `payload` isn't there.
+  useEffect(() => {
+    return realtime.on("league.wakeup_started", (message) => {
+      const payload = ((message.payload as Record<string, unknown> | undefined) ?? message) as Record<string, unknown>;
+      if (payload.competitor_id !== competitorId) return;
+      const wakeupId = payload.wakeup_id;
+      if (typeof wakeupId !== "number") return;
+      setWakeup((prev) => (prev && prev.id === wakeupId ? { ...prev, phase: "thinking" } : prev));
+    });
+  }, [competitorId]);
+
+  // Safety net for the wake-up button lifecycle -- mirrors refreshTimeoutRef
+  // below. A terminal event can simply never arrive (socket down, or the
+  // backend's own documented edge case: a competitor with no owning user
+  // gets zero WS pushes at all), which would otherwise leave the button
+  // disabled forever.
+  useEffect(() => {
+    if (wakeupTimeoutRef.current) {
+      clearTimeout(wakeupTimeoutRef.current);
+      wakeupTimeoutRef.current = null;
+    }
+    if (!wakeup) return;
+    wakeupTimeoutRef.current = setTimeout(() => {
+      wakeupTimeoutRef.current = null;
+      setWakeup(null);
+      setRefreshSignal((k) => k + 1);
+    }, WAKEUP_FALLBACK_MS);
+    return () => {
+      if (wakeupTimeoutRef.current) {
+        clearTimeout(wakeupTimeoutRef.current);
+        wakeupTimeoutRef.current = null;
+      }
+    };
+  }, [wakeup]);
 
   // league.competitor_refreshed (finance-backend/docs/league-api.md's "Live competition
   // feed") -- the manual-refresh button's reply. Its payload omits
@@ -246,13 +304,12 @@ export function CompetitorDashboardPage() {
   }, [competitionId, competitorId]);
 
   const handleWakeUp = async () => {
-    setWaking(true);
+    setError(null);
     try {
-      await triggerWakeup(competitorId);
+      const w = await triggerWakeup(competitorId);
+      setWakeup({ id: w.id, phase: "queued" });
     } catch (err) {
       setError(extractGenericMessage(err, "Couldn't trigger a wake-up."));
-    } finally {
-      setWaking(false);
     }
   };
 
@@ -364,8 +421,8 @@ export function CompetitorDashboardPage() {
                   </button>
                 )}
                 {detail.kind === "ai" && (
-                  <button type="button" className="btn btn-primary" onClick={handleWakeUp} disabled={waking}>
-                    {waking ? "Waking…" : "Wake up now"}
+                  <button type="button" className="btn btn-primary" onClick={handleWakeUp} disabled={wakeup !== null}>
+                    {wakeup?.phase === "thinking" ? "Thinking…" : wakeup ? "Queued…" : "Wake up now"}
                   </button>
                 )}
               </div>

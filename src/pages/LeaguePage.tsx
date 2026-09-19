@@ -163,6 +163,13 @@ const REFRESH_FALLBACK_MS = 15_000;
 const WAKE_ALL_MAX = 10;
 const WAKE_ALL_DELAY_MS = 1000;
 
+// Same fallback idea as REFRESH_FALLBACK_MS, but much longer -- a wake-up is
+// a full LLM turn, not a quote refresh, and the backend explicitly calls out
+// cases where no event ever arrives at all (a competitor with no owning
+// user gets zero WS pushes). Without this a wake-up that never gets a
+// terminal event would keep "Wake up all" disabled forever.
+const WAKEUP_FALLBACK_MS = 5 * 60_000;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -177,7 +184,13 @@ export function LeaguePage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const [wakingAll, setWakingAll] = useState(false);
+  // The send loop below (POSTing each wake-up, WAKE_ALL_DELAY_MS apart) vs.
+  // the outstanding wake-ups it queued, tracked by wakeup_id through
+  // queued -> thinking -> cleared on the matching terminal event (or the
+  // fallback timeout). The button stays disabled while either is non-empty.
+  const [wakeAllSending, setWakeAllSending] = useState(false);
+  const [pendingWakeups, setPendingWakeups] = useState<Map<number, "queued" | "thinking">>(new Map());
+  const wakeupFallbackTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
   const [wakeAllError, setWakeAllError] = useState<string | null>(null);
   const [equityCurve, setEquityCurve] = useState<EquityCurveSeries[] | null>(null);
   const [nextForcedCheckin, setNextForcedCheckin] = useState<ForcedCheckin | null>(null);
@@ -277,9 +290,49 @@ export function LeaguePage() {
     };
   }, [competitors, refreshSignal]);
 
+  // Clears one wake-up out of the "Wake up all" tracking map (terminal
+  // event, or the fallback timeout below), tearing down its timer either way.
+  const clearWakeup = (wakeupId: number) => {
+    setPendingWakeups((prev) => {
+      if (!prev.has(wakeupId)) return prev;
+      const next = new Map(prev);
+      next.delete(wakeupId);
+      return next;
+    });
+    const timer = wakeupFallbackTimers.current.get(wakeupId);
+    if (timer) {
+      clearTimeout(timer);
+      wakeupFallbackTimers.current.delete(wakeupId);
+    }
+  };
+
+  // Starts tracking one wake-up triggered from "Wake up all" -- see
+  // pendingWakeups' comment above for the lifecycle.
+  const trackWakeup = (wakeupId: number) => {
+    setPendingWakeups((prev) => {
+      const next = new Map(prev);
+      next.set(wakeupId, "queued");
+      return next;
+    });
+    wakeupFallbackTimers.current.set(
+      wakeupId,
+      setTimeout(() => clearWakeup(wakeupId), WAKEUP_FALLBACK_MS),
+    );
+  };
+
+  // Clear every outstanding fallback timer on unmount.
+  useEffect(() => {
+    return () => {
+      wakeupFallbackTimers.current.forEach((timer) => clearTimeout(timer));
+      wakeupFallbackTimers.current.clear();
+    };
+  }, []);
+
   // league.trade_activity / league.wakeup_complete / league.wakeup_failed all
   // arrive as generic notification.new pushes -- refresh the scoreboard and
-  // whichever competitor's detail panel is open on any of them.
+  // whichever competitor's detail panel is open on any of them, and clear
+  // the matching wakeup_id out of "Wake up all"'s tracking if it's one of
+  // the wake-ups that button triggered.
   useEffect(() => {
     if (!competition) return;
     return realtime.on("notification.new", (message) => {
@@ -287,8 +340,25 @@ export function LeaguePage() {
       if (typeof type !== "string" || !type.startsWith("league.")) return;
       loadCompetitionData(competition.id).catch(() => {});
       setRefreshSignal((k) => k + 1);
+      const payload = message.payload as Record<string, unknown> | undefined;
+      const wakeupId = payload?.wakeup_id;
+      if (typeof wakeupId === "number") clearWakeup(wakeupId);
     });
   }, [competition]);
+
+  // league.wakeup_started -- a plain push on the same /ws/user/ socket, NOT
+  // wrapped in notification.new (unpersisted, so a missed one just leaves
+  // that wake-up on "queued" until its terminal event or the fallback
+  // timeout). Read defensively since the payload nesting isn't fully pinned
+  // down -- fall back to the top-level message if `payload` isn't there.
+  useEffect(() => {
+    return realtime.on("league.wakeup_started", (message) => {
+      const payload = ((message.payload as Record<string, unknown> | undefined) ?? message) as Record<string, unknown>;
+      const wakeupId = payload.wakeup_id;
+      if (typeof wakeupId !== "number") return;
+      setPendingWakeups((prev) => (prev.has(wakeupId) ? new Map(prev).set(wakeupId, "thinking") : prev));
+    });
+  }, []);
 
   // Lazy: only hit the trades endpoint once the Trades tab is actually
   // opened, and again whenever a filter changes -- avoids adding a request
@@ -415,24 +485,35 @@ export function LeaguePage() {
     if (targets.length === 0) return;
     const noun = targets.length === 1 ? "AI agent" : "AI agents";
     if (!window.confirm(`You are about to wake up ${targets.length} ${noun}. Do you want to do this?`)) return;
-    setWakingAll(true);
+    setWakeAllSending(true);
     setWakeAllError(null);
     let failures = 0;
     for (let i = 0; i < targets.length; i++) {
       try {
-        await triggerWakeup(targets[i].id);
+        const w = await triggerWakeup(targets[i].id);
+        trackWakeup(w.id);
       } catch {
         failures++;
       }
       if (i < targets.length - 1) await sleep(WAKE_ALL_DELAY_MS);
     }
-    setWakingAll(false);
+    setWakeAllSending(false);
     if (failures > 0) setWakeAllError(`${failures} of ${targets.length} wake-ups failed to trigger.`);
   };
 
   const hasHumanCompetitor = competitors.some((c) => c.kind === "human");
   const humanCompetitor = competitors.find((c) => c.kind === "human") ?? null;
   const aiCompetitorCount = competitors.filter((c) => c.kind === "ai").length;
+
+  const wakeAllBusy = wakeAllSending || pendingWakeups.size > 0;
+  const wakeAllThinkingCount = [...pendingWakeups.values()].filter((phase) => phase === "thinking").length;
+  const wakeAllLabel = !wakeAllBusy
+    ? "Wake up all"
+    : wakeAllThinkingCount > 0
+      ? `Thinking… (${wakeAllThinkingCount}/${pendingWakeups.size})`
+      : pendingWakeups.size > 0
+        ? `Queued… (${pendingWakeups.size})`
+        : "Queued…";
 
   // Fetched fresh each time the header's New trade button opens the modal
   // (rather than kept in sync continuously) -- it's just there to seed the
@@ -543,18 +624,16 @@ export function LeaguePage() {
               type="button"
               className={`btn btn-secondary${isMobile ? " btn-icon-sm" : ""}`}
               onClick={handleWakeAll}
-              disabled={wakingAll || aiCompetitorCount === 0}
-              title={wakingAll ? "Waking…" : `Wakes up to ${WAKE_ALL_MAX} AI competitors, ${WAKE_ALL_DELAY_MS / 1000}s apart`}
+              disabled={wakeAllBusy || aiCompetitorCount === 0}
+              title={wakeAllBusy ? wakeAllLabel : `Wakes up to ${WAKE_ALL_MAX} AI competitors, ${WAKE_ALL_DELAY_MS / 1000}s apart`}
               aria-label="Wake up all"
             >
               {isMobile ? (
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
                 </svg>
-              ) : wakingAll ? (
-                "Waking…"
               ) : (
-                "Wake up all"
+                wakeAllLabel
               )}
             </button>
             <button

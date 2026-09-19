@@ -62,6 +62,21 @@ type ChatItem = ChatMessageItem | PendingActionItem;
 
 const ALL_TICKERS = "__all__";
 
+// Desktop-only panel width, dragged from the left edge -- mobile keeps the
+// CSS default (min(380px, 100vw), i.e. full-width) since there's no room to
+// resize a drawer that's already filling the screen. Remembered across
+// visits the same way ThemeContext remembers light/dark.
+const CHAT_WIDTH_STORAGE_KEY = "chatDrawerWidth";
+const CHAT_WIDTH_DEFAULT = 380;
+const CHAT_WIDTH_MIN = 320;
+const CHAT_WIDTH_MAX = 720;
+
+function getInitialChatWidth(): number {
+  const stored = Number(localStorage.getItem(CHAT_WIDTH_STORAGE_KEY));
+  if (Number.isFinite(stored) && stored > 0) return Math.min(Math.max(stored, CHAT_WIDTH_MIN), CHAT_WIDTH_MAX);
+  return CHAT_WIDTH_DEFAULT;
+}
+
 function tickerFromPath(pathname: string): string | null {
   const match = pathname.match(/^\/screen\/([^/]+)/);
   return match ? decodeURIComponent(match[1]) : null;
@@ -98,6 +113,54 @@ export function ChatAssistant() {
   // Only auto-scroll while the user is already at (or near) the bottom --
   // otherwise every streamed token yanks them back down mid-read.
   const stickToBottomRef = useRef(true);
+
+  const [chatWidth, setChatWidth] = useState<number>(getInitialChatWidth);
+  // The drag effect below is mounted once and reads these through refs
+  // rather than closing over `chatWidth` state, same reasoning as every
+  // other stale-closure ref in this codebase -- mousemove fires far faster
+  // than React re-renders would keep up with.
+  const chatWidthRef = useRef(chatWidth);
+  useEffect(() => {
+    chatWidthRef.current = chatWidth;
+  }, [chatWidth]);
+  const resizingRef = useRef(false);
+  const dragStartXRef = useRef(0);
+  const dragStartWidthRef = useRef(0);
+
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    dragStartXRef.current = e.clientX;
+    dragStartWidthRef.current = chatWidthRef.current;
+    document.body.style.userSelect = "none";
+  };
+
+  // Mounted for the component's lifetime (not just while dragging) so a
+  // mouseup that lands outside the handle -- or even outside the window --
+  // still ends the drag instead of leaving it stuck following the cursor.
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!resizingRef.current) return;
+      // The panel is right-anchored, so moving the cursor left (a smaller
+      // clientX) is what should grow it.
+      const delta = dragStartXRef.current - e.clientX;
+      const maxWidth = Math.min(CHAT_WIDTH_MAX, window.innerWidth - 80);
+      const next = Math.min(Math.max(dragStartWidthRef.current + delta, CHAT_WIDTH_MIN), maxWidth);
+      setChatWidth(next);
+    };
+    const handleMouseUp = () => {
+      if (!resizingRef.current) return;
+      resizingRef.current = false;
+      document.body.style.userSelect = "";
+      localStorage.setItem(CHAT_WIDTH_STORAGE_KEY, String(chatWidthRef.current));
+    };
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, []);
 
   // Every click of the floating button is a new chat: reset to a blank,
   // not-yet-created conversation and reload the ticker/model context.
@@ -368,7 +431,16 @@ export function ChatAssistant() {
         </button>
       )}
       {open && (
-        <div className="chat-drawer elev-lg">
+        <div className="chat-drawer elev-lg" style={!isMobile ? { width: chatWidth } : undefined}>
+          {!isMobile && (
+            <div
+              className="chat-drawer-resize-handle"
+              onMouseDown={handleResizeStart}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize chat panel"
+            />
+          )}
           <div className="chat-drawer-head">
             <select className="input" value={ticker} onChange={(e) => setTicker(e.target.value)} aria-label="Scope">
               <option value={ALL_TICKERS}>All tickers</option>

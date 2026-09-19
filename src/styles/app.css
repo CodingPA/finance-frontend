@@ -571,6 +571,24 @@
   border-left: 1px solid var(--color-divider);
 }
 
+/* Straddles the drawer's own border-left so the drag target is wider than
+   the 1px line without visually thickening it -- desktop-only (mobile's
+   drawer already fills the viewport, see ChatAssistant.tsx). */
+.chat-drawer-resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.chat-drawer-resize-handle:hover,
+.chat-drawer-resize-handle:active {
+  background: color-mix(in srgb, var(--color-accent) 40%, transparent);
+}
+
 .chat-drawer-head {
   display: flex;
   align-items: center;

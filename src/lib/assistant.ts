@@ -6,9 +6,16 @@
 
 import { apiFetch, parseJsonOrThrow, ApiError } from "./api";
 
+export type AssistantModelProvider = "anthropic" | "openai" | "gemini";
+
+// Streaming, tool calls, cost tracking, and error handling are all
+// provider-agnostic server-side -- `provider` exists purely so the picker
+// can group/badge models, not because the frontend needs to branch on it
+// anywhere else.
 export interface AssistantModel {
   model_id: string;
   display_name: string;
+  provider: AssistantModelProvider;
   is_default: boolean;
 }
 

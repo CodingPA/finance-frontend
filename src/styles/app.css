@@ -608,6 +608,12 @@
   flex: none;
 }
 
+.chat-font-controls {
+  display: flex;
+  gap: 2px;
+  flex: none;
+}
+
 .btn-icon-sm {
   width: 28px;
   height: 28px;
@@ -681,13 +687,16 @@
   gap: var(--space-3);
 }
 
+/* font-size comes from .chat-drawer-body's own inline style (the A-/A+
+   controls in ChatAssistant.tsx) rather than a fixed value here, so the
+   whole conversation column scales together. */
 .chat-empty {
-  font-size: 13px;
+  font-size: inherit;
 }
 
 .chat-msg-text {
   white-space: pre-wrap;
-  font-size: 13px;
+  font-size: inherit;
   line-height: 1.5;
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
@@ -741,7 +750,7 @@
 
 .chat-pending-desc {
   margin: 0;
-  font-size: 13px;
+  font-size: inherit;
   line-height: 1.5;
 }
 
@@ -800,6 +809,11 @@
 
 .chat-drawer-input {
   display: flex;
+  /* flex-end, not the default stretch -- the composer grows taller than the
+     Send button as its content wraps to more lines, and stretch would pull
+     the button to match that height instead of keeping it pinned to the
+     bottom of the row. */
+  align-items: flex-end;
   gap: var(--space-2);
   padding: var(--space-3);
   border-top: 1px solid var(--color-divider);
@@ -807,6 +821,17 @@
 
 .chat-drawer-input .input {
   flex: 1;
+}
+
+/* Overrides the generic textarea.input rule (min-height: 90px, manual
+   resize handle) -- this one starts at one line and grows/shrinks itself
+   via ChatAssistant.tsx's resizeInput(), up to CHAT_INPUT_MAX_ROWS. */
+.chat-drawer-input textarea.chat-input-textarea {
+  min-height: 36px;
+  max-height: none;
+  resize: none;
+  overflow-y: hidden;
+  line-height: 1.4;
 }
 
 /* — league — */

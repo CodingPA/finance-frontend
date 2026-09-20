@@ -27,8 +27,29 @@ import {
   sendConversationMessage,
   respondToPendingAction,
   type AssistantModel,
+  type AssistantModelProvider,
   type AssistantConversation,
 } from "../lib/assistant";
+
+const PROVIDER_LABELS: Record<AssistantModelProvider, string> = {
+  anthropic: "Claude",
+  openai: "OpenAI",
+  gemini: "Gemini",
+};
+
+// Fixed display order regardless of what order the API lists models in --
+// only shows up as <optgroup> headers, so a provider with no models
+// returned just doesn't get a group.
+const PROVIDER_ORDER: AssistantModelProvider[] = ["anthropic", "openai", "gemini"];
+
+function groupModelsByProvider(models: AssistantModel[]): [AssistantModelProvider, AssistantModel[]][] {
+  const groups = new Map<AssistantModelProvider, AssistantModel[]>();
+  for (const m of models) {
+    if (!groups.has(m.provider)) groups.set(m.provider, []);
+    groups.get(m.provider)!.push(m);
+  }
+  return PROVIDER_ORDER.filter((p) => groups.has(p)).map((p) => [p, groups.get(p)!]);
+}
 
 interface ChatMessageItem {
   kind: "message";
@@ -82,6 +103,27 @@ function tickerFromPath(pathname: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+// Message text size -- applied to .chat-drawer-body as an inline font-size
+// (see app.css's .chat-msg-text/.chat-empty/.chat-pending-desc, which
+// inherit it rather than hardcoding their own). Same localStorage-remembers
+// pattern as CHAT_WIDTH above.
+const CHAT_FONT_SIZE_STORAGE_KEY = "chatFontSize";
+const CHAT_FONT_SIZE_DEFAULT = 13;
+const CHAT_FONT_SIZE_MIN = 12;
+const CHAT_FONT_SIZE_MAX = 20;
+const CHAT_FONT_SIZE_STEP = 1;
+
+function getInitialChatFontSize(): number {
+  const stored = Number(localStorage.getItem(CHAT_FONT_SIZE_STORAGE_KEY));
+  if (Number.isFinite(stored) && stored > 0) return Math.min(Math.max(stored, CHAT_FONT_SIZE_MIN), CHAT_FONT_SIZE_MAX);
+  return CHAT_FONT_SIZE_DEFAULT;
+}
+
+// The composer starts at one line and grows with the content, up to this
+// many lines -- past that it scrolls internally rather than swallowing the
+// message history above it.
+const CHAT_INPUT_MAX_ROWS = 6;
+
 export function ChatAssistant() {
   const { status } = useAuth();
   const location = useLocation();
@@ -109,7 +151,8 @@ export function ChatAssistant() {
   const streamingIdRef = useRef<number | null>(null);
   const activeConversationIdRef = useRef<number | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [chatFontSize, setChatFontSize] = useState<number>(getInitialChatFontSize);
   // Only auto-scroll while the user is already at (or near) the bottom --
   // otherwise every streamed token yanks them back down mid-read.
   const stickToBottomRef = useRef(true);
@@ -161,6 +204,43 @@ export function ChatAssistant() {
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(CHAT_FONT_SIZE_STORAGE_KEY, String(chatFontSize));
+  }, [chatFontSize]);
+
+  const decreaseChatFontSize = () => setChatFontSize((prev) => Math.max(CHAT_FONT_SIZE_MIN, prev - CHAT_FONT_SIZE_STEP));
+  const increaseChatFontSize = () => setChatFontSize((prev) => Math.min(CHAT_FONT_SIZE_MAX, prev + CHAT_FONT_SIZE_STEP));
+
+  // Grows the composer with its content up to CHAT_INPUT_MAX_ROWS, then lets
+  // it scroll internally -- the standard "reset height, measure scrollHeight,
+  // clamp" auto-resize technique. Reading the DOM directly (rather than
+  // computing rows from `input`'s newline count) is what keeps this correct
+  // for soft-wrapped lines too, not just explicit \n's.
+  const resizeInput = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const computed = getComputedStyle(el);
+    const lineHeight = parseFloat(computed.lineHeight) || 20;
+    // box-sizing: border-box (global reset) means scrollHeight already
+    // includes padding/border -- the row cap needs to too, or it clips
+    // noticeably before CHAT_INPUT_MAX_ROWS actual lines of text fit.
+    const verticalPadding = parseFloat(computed.paddingTop) + parseFloat(computed.paddingBottom);
+    const borderHeight = parseFloat(computed.borderTopWidth) + parseFloat(computed.borderBottomWidth);
+    const maxHeight = lineHeight * CHAT_INPUT_MAX_ROWS + verticalPadding + borderHeight;
+    const next = Math.min(el.scrollHeight, maxHeight);
+    el.style.height = `${next}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+  };
+
+  // Also re-measure on chatWidth changes -- narrowing the panel can force
+  // existing text to soft-wrap onto an extra line before the user types
+  // anything new, and the height should reflect that immediately rather
+  // than waiting for the next keystroke.
+  useEffect(() => {
+    resizeInput();
+  }, [input, chatWidth]);
 
   // Every click of the floating button is a new chat: reset to a blank,
   // not-yet-created conversation and reload the ticker/model context.
@@ -305,6 +385,7 @@ export function ChatAssistant() {
   if (status !== "authenticated") return null;
 
   const modelDisplayName = (id: string) => models.find((m) => m.model_id === id)?.display_name ?? id;
+  const modelProvider = (id: string) => models.find((m) => m.model_id === id)?.provider;
 
   const toggleHistory = () => {
     setHistoryOpen((prev) => {
@@ -423,6 +504,16 @@ export function ChatAssistant() {
     }
   };
 
+  // Enter sends (matching the old single-line <input>'s native behavior);
+  // Shift+Enter inserts a newline, the standard chat-composer convention
+  // now that this is a <textarea>.
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   return (
     <>
       {!open && !isMobile && (
@@ -451,12 +542,38 @@ export function ChatAssistant() {
               ))}
             </select>
             <select className="input" value={modelId} onChange={(e) => setModelId(e.target.value)} aria-label="Model">
-              {models.map((m) => (
-                <option key={m.model_id} value={m.model_id}>
-                  {m.display_name}
-                </option>
+              {groupModelsByProvider(models).map(([provider, group]) => (
+                <optgroup key={provider} label={PROVIDER_LABELS[provider]}>
+                  {group.map((m) => (
+                    <option key={m.model_id} value={m.model_id}>
+                      {m.display_name}
+                    </option>
+                  ))}
+                </optgroup>
               ))}
             </select>
+            <div className="chat-font-controls">
+              <button
+                type="button"
+                className="btn btn-secondary btn-icon-sm"
+                onClick={decreaseChatFontSize}
+                disabled={chatFontSize <= CHAT_FONT_SIZE_MIN}
+                aria-label="Decrease chat text size"
+                title="Smaller text"
+              >
+                A−
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-icon-sm"
+                onClick={increaseChatFontSize}
+                disabled={chatFontSize >= CHAT_FONT_SIZE_MAX}
+                aria-label="Increase chat text size"
+                title="Larger text"
+              >
+                A+
+              </button>
+            </div>
             <div className="chat-history">
               <button
                 type="button"
@@ -499,7 +616,7 @@ export function ChatAssistant() {
               &times;
             </button>
           </div>
-          <div className="chat-drawer-body" ref={bodyRef} onScroll={handleBodyScroll}>
+          <div className="chat-drawer-body" ref={bodyRef} onScroll={handleBodyScroll} style={{ fontSize: chatFontSize }}>
             {items.length === 0 && (
               <p className="text-muted chat-empty">
                 Ask something about {ticker === ALL_TICKERS ? "your tracked companies" : ticker}.
@@ -544,6 +661,14 @@ export function ChatAssistant() {
                   </div>
                   {item.role === "assistant" && !item.streaming && !item.error && item.modelId && (
                     <div className="chat-msg-usage info-tip text-muted" tabIndex={0}>
+                      {modelProvider(item.modelId) && (
+                        <span
+                          className={`tag ${modelProvider(item.modelId) === "openai" ? "tag-accent-2" : "tag-accent"}`}
+                          style={{ padding: "1px 6px", marginRight: 4 }}
+                        >
+                          {PROVIDER_LABELS[modelProvider(item.modelId)!]}
+                        </span>
+                      )}
                       {modelDisplayName(item.modelId)} · {(item.inputTokens ?? 0) + (item.outputTokens ?? 0)} tokens · $
                       {Number(item.costUsd ?? 0).toFixed(4)}
                       <div className="info-tip-bubble chat-usage-bubble">
@@ -573,11 +698,13 @@ export function ChatAssistant() {
               handleSend();
             }}
           >
-            <input
+            <textarea
               ref={inputRef}
-              className="input"
+              className="input chat-input-textarea"
+              rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleInputKeyDown}
               placeholder="Ask the assistant…"
               disabled={loading}
             />

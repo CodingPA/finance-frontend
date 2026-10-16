@@ -100,8 +100,8 @@ Behind email/password login (with session persistence across reloads):
 - **Dashboard** (`/`) — the companies you track, each with its latest screen
   summary and your pending/shortlisted/killed verdict.
 - **Screener** (`/screen/:ticker`) — a ticker's financials and filings from
-  the backend's screen, plus your research clips, thesis journal and linked
-  Wikipedia pages.
+  the backend's screen, plus your research clips, thesis journal, linked
+  Wikipedia pages and uploaded audio/video for transcription.
 - **Social** (`/social`) — watched subreddits and the tickers the backend's
   scans found being discussed, with the posts behind each count.
 - **League** (`/league`, `/league/competitors/:id`) — the paper trading

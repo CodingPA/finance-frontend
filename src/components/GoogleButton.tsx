@@ -43,6 +43,15 @@ export function GoogleButton({ onIdToken, onError }: { onIdToken: (idToken: stri
   const containerRef = useRef<HTMLDivElement>(null);
   const [failed, setFailed] = useState(false);
 
+  // The auth pages pass fresh inline handlers on every render (so, every
+  // keystroke in their forms). Reading them through a ref lets the effect
+  // below run once per mount instead of re-running GIS's initialize() --
+  // meant to be called once -- and re-rendering Google's button each time.
+  const callbacksRef = useRef({ onIdToken, onError });
+  useEffect(() => {
+    callbacksRef.current = { onIdToken, onError };
+  });
+
   useEffect(() => {
     if (!CLIENT_ID || !containerRef.current) return;
     let cancelled = false;
@@ -52,7 +61,7 @@ export function GoogleButton({ onIdToken, onError }: { onIdToken: (idToken: stri
         if (cancelled || !window.google || !containerRef.current) return;
         window.google.accounts.id.initialize({
           client_id: CLIENT_ID,
-          callback: (response) => onIdToken(response.credential),
+          callback: (response) => callbacksRef.current.onIdToken(response.credential),
         });
         window.google.accounts.id.renderButton(containerRef.current, {
           theme: "outline",
@@ -63,14 +72,14 @@ export function GoogleButton({ onIdToken, onError }: { onIdToken: (idToken: stri
       .catch(() => {
         if (!cancelled) {
           setFailed(true);
-          onError("Google sign-in isn't working right now.");
+          callbacksRef.current.onError("Google sign-in isn't working right now.");
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [onIdToken, onError]);
+  }, []);
 
   if (!CLIENT_ID || failed) return null;
   return <div ref={containerRef} />;

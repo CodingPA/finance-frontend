@@ -2,7 +2,7 @@
 # Node-related survives into the final image -- the frontend is static files,
 # so there's no process that needs to stay running to hand them back.
 
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 
 # Manifests first, so the dependency install layer caches independently of

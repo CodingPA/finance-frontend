@@ -26,6 +26,9 @@ server {
     }
 
     location /ws/ {
+        # The access token rides in the query string (/ws/user/?token=...),
+        # so these requests stay out of the access log.
+        access_log off;
         proxy_pass ${BACKEND_URL};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;

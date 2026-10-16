@@ -12,7 +12,7 @@ against a separate Django backend (JWT access + refresh).
 > risk.
 
 **This is the frontend only.** It needs the backend running to do anything past
-the login screen — see [finance-backend](../finance-backend) for its setup. The
+the login screen — see [finance-backend](https://github.com/CodingPA/finance-backend) for its setup. The
 two are separate repos with separate deploys, so nothing here builds or starts
 the backend for you.
 
@@ -67,14 +67,14 @@ backend on port 8001 separately.
 - **Backend docs are in the other repo.** Source comments cite paths like
   `finance-backend/docs/league-api.md` and
   `finance-backend/docs/authentication.md` — those are relative to
-  [finance-backend](../finance-backend), not to this repo. `docs/` here holds
+  [finance-backend](https://github.com/CodingPA/finance-backend), not to this repo. `docs/` here holds
   only specs written *for* the backend from the frontend's side.
 
 - **SPA, not SSR.** The auth model keeps the access token in memory and the
   refresh token in `localStorage` — that only works client-side, so Next.js
   or any server-rendered framework would fight it. Vite + React Router.
 - **No CSS framework.** Styling comes entirely from the "Modernist" design
-  system (`src/styles/modernist.css`, vendored from the linked Claude design
+  system (`src/styles/modernist.css`, vendored from a Claude design
   project) — flat, Archivo type, red accent, zero border-radius. Build with
   its existing classes (`.btn`, `.field`, `.input`, `.card`, `.nav`, ...)
   rather than inventing new ones; `src/styles/app.css` holds only page-layout
@@ -95,23 +95,40 @@ render.
 
 ## Status
 
-Email/password login, registration, logout, session persistence, and a
-protected route wrapper are in place. Not yet built: Google sign-in
-end-to-end verification (needs a real client ID), and everything past the
-auth shell (The Lab's screen/rank/deep-dive workflow).
+Behind email/password login (with session persistence across reloads):
+
+- **Dashboard** (`/`) — the companies you track, each with its latest screen
+  summary and your pending/shortlisted/killed verdict.
+- **Screener** (`/screen/:ticker`) — a ticker's financials and filings from
+  the backend's screen, plus your research clips, thesis journal and linked
+  Wikipedia pages.
+- **Social** (`/social`) — watched subreddits and the tickers the backend's
+  scans found being discussed, with the posts behind each count.
+- **League** (`/league`, `/league/competitors/:id`) — the paper trading
+  league: standings, equity curves, positions, trades, and each AI
+  competitor's wake-up transcripts.
+- **Chat assistant** — a side panel on every page, with replies streamed
+  over the realtime socket and a model picker grouped by provider.
+- **Notifications** — the backend's notification feed, live over the same
+  socket.
+
+Not done yet: Google sign-in is wired but hasn't been verified end-to-end
+(it needs a real client ID — see [Auth](#auth)). There are no automated
+tests; CI runs the type-check and production build only.
 
 ## License
 
-Copyright 2026 George Cann CodingPA LLC.
+Copyright 2026 George Cann, CodingPA LLC.
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the
 full text and [NOTICE](NOTICE) for the attribution notice that travels with
 redistributions — same terms as
-[finance-backend](../finance-backend), chosen for the explicit patent grant and
+[finance-backend](https://github.com/CodingPA/finance-backend), chosen for the explicit patent grant and
 for making contributions inbound-licensed without a separate CLA.
 
 The License covers this source code only, not any data displayed through it —
-see "Data sources and their terms" in finance-backend's README.
+see "Data sources and their terms" in
+[finance-backend's README](https://github.com/CodingPA/finance-backend#readme).
 
 ---
 
@@ -130,8 +147,10 @@ certbot paths. The container uses a separate generic config
 The site is served straight off the Vite build's `dist/` output — there's no
 Node process for the frontend to keep alive, so pm2 isn't involved (it's still
 what runs the Django backend). nginx serves `dist/` and reverse-proxies `/api`
-and `/ws` to the backend on the same box (`localhost:8001`). Deploys are
-manual: SSH in and run `deploy.sh`.
+and `/ws` to the backend on the same box (`localhost:8001`). Pushes to `main`
+deploy automatically: once the build job in `.github/workflows/deploy.yml`
+passes, its deploy job SSHes in and runs `deploy.sh`. That job is gated to
+this repository, so it never runs on forks.
 
 ### One-time server setup
 
@@ -193,6 +212,11 @@ manual: SSH in and run `deploy.sh`.
    ```
 
 ### Every deploy after that
+
+Merging to `main` is the deploy. The workflow connects with the
+`DEPLOY_SSH_KEY` repository secret (an SSH private key for the deploy user)
+to the host and user hardcoded in `.github/workflows/deploy.yml`, and runs
+the same command you'd run by hand:
 
 ```
 ssh deploy@server '~/finance-frontend/deploy.sh'

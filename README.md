@@ -181,8 +181,8 @@ this repository, so it never runs on forks.
    ```
    git clone git@github.com-finance-frontend:CodingPA/finance-frontend.git ~/finance-frontend
    cd ~/finance-frontend
-   chmod +x deploy.sh
    ```
+   (`deploy.sh` is tracked as executable, so no `chmod` is needed.)
 
 3. **Production env file** -- `.env.production.local` is gitignored (same
    as `.env.local` in dev), so create it once directly on the server if you

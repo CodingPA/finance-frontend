@@ -35,4 +35,7 @@ jobs:
           host: fieldwork.cloud
           username: deployer
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script: /home/deployer/finance-frontend/deploy.sh
+          # Via bash, not as an executable: the script git-resets its own
+          # checkout, so a commit that ever loses its +x bit would otherwise
+          # brick every deploy after it (Permission denied, exit 126).
+          script: bash /home/deployer/finance-frontend/deploy.sh

@@ -69,8 +69,7 @@ backend on port 8001 separately.
 - **Backend docs are in the other repo.** Source comments cite paths like
   `finance-backend/docs/league-api.md` and
   `finance-backend/docs/authentication.md` — those are relative to
-  [finance-backend](https://github.com/CodingPA/finance-backend), not to this repo. `docs/` here holds
-  only specs written *for* the backend from the frontend's side.
+  [finance-backend](https://github.com/CodingPA/finance-backend), not to this repo.
 
 - **SPA, not SSR.** The auth model keeps the access token in memory and the
   refresh token in `localStorage` — that only works client-side, so Next.js
@@ -147,9 +146,9 @@ certbot paths. The container uses a separate generic config
 (`deploy/nginx.container.conf.template`); the two aren't interchangeable.
 
 The site is served straight off the Vite build's `dist/` output — there's no
-Node process for the frontend to keep alive, so pm2 isn't involved (it's still
-what runs the Django backend). nginx serves `dist/` and reverse-proxies `/api`
-and `/ws` to the backend on the same box (`localhost:8001`). Pushes to `main`
+Node process for the frontend to keep alive. nginx serves `dist/` and
+reverse-proxies `/api` and `/ws` to the Django backend, which runs on the same
+box as its own systemd service (`localhost:8001`). Pushes to `main`
 deploy automatically: once the build job in `.github/workflows/deploy.yml`
 passes, its deploy job SSHes in and runs `deploy.sh`. That job is gated to
 this repository, so it never runs on forks.
@@ -195,17 +194,21 @@ this repository, so it never runs on forks.
    `/api` default is correct in production too, since nginx is doing the
    proxying.
 
-4. **nginx site** -- copy `deploy/nginx.conf` in (fix the `root` path first
-   if the deploy user's home directory isn't `/home/deployer`):
+4. **TLS certificate, then the nginx site** -- `deploy/nginx.conf` is
+   committed *with* certbot's edits already in it (the `# managed by Certbot`
+   lines), so it points at certificate files and won't pass `nginx -t` until
+   they exist. Get the certificate first, with `certonly` so certbot doesn't
+   edit any config, then link the site in (fix the `root` path first if the
+   deploy user's home directory isn't `/home/deployer`):
    ```
+   sudo certbot certonly --nginx -d finance.codingpa.com
    sudo ln -s ~/finance-frontend/deploy/nginx.conf /etc/nginx/sites-available/finance.codingpa.com
    sudo ln -s /etc/nginx/sites-available/finance.codingpa.com /etc/nginx/sites-enabled/
    sudo nginx -t && sudo systemctl reload nginx
-   sudo certbot --nginx -d finance.codingpa.com
    ```
-   `certbot` rewrites that file in place to add the HTTPS server block and
-   HTTP->HTTPS redirect -- don't hand-write `ssl_certificate` lines
-   yourself.
+   Don't run plain `certbot --nginx` against the linked file: it rewrites
+   it in place, which leaves the checkout dirty and makes `deploy.sh`
+   refuse to run. Renewals (`certbot renew`) don't touch it.
 
 5. **First build** -- `deploy.sh` refuses to run against a dirty working
    tree, but a fresh clone is already clean, so just:
@@ -217,8 +220,11 @@ this repository, so it never runs on forks.
 
 Merging to `main` is the deploy. The workflow connects with the
 `DEPLOY_SSH_KEY` repository secret (an SSH private key for the deploy user)
-to the host and user hardcoded in `.github/workflows/deploy.yml`, and runs
-the same command you'd run by hand:
+to the host and user hardcoded in `.github/workflows/deploy.yml`. On the
+server, that key's `authorized_keys` entry is pinned to
+`command="/home/deployer/finance-frontend/deploy.sh"`, so it can't do anything
+but deploy -- which also means `deploy.sh` must stay executable in git. It
+runs the same command you'd run by hand:
 
 ```
 ssh deploy@server '~/finance-frontend/deploy.sh'

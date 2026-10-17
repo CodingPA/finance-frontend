@@ -35,7 +35,10 @@ jobs:
           host: fieldwork.cloud
           username: deployer
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          # Via bash, not as an executable: the script git-resets its own
-          # checkout, so a commit that ever loses its +x bit would otherwise
-          # brick every deploy after it (Permission denied, exit 126).
+          # sshd ignores this value: the server's authorized_keys pins this key
+          # to command="/home/deployer/finance-frontend/deploy.sh", which runs
+          # the script directly. So deploy.sh must stay executable in git
+          # (100755) -- it git-resets its own checkout, and a commit that
+          # dropped the +x bit would break every deploy after it (Permission
+          # denied, exit 126).
           script: bash /home/deployer/finance-frontend/deploy.sh

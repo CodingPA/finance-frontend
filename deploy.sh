@@ -28,7 +28,7 @@ git reset --hard origin/main
 echo "==> Installing dependencies (npm ci)"
 npm ci
 
-echo "==> Building (tsc -b && vite build)"
+echo "==> Building with Node $(node -v) (tsc -b && vite build)"
 npm run build
 
 echo "==> Done: $(git rev-parse --short HEAD) built to dist/ at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"

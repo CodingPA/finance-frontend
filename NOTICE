@@ -24,7 +24,8 @@ to any data retrieved through it. Each provider -- Tradier, SteadyAPI,
 Financial Modeling Prep, SEC EDGAR, Wikipedia, Reddit -- licenses its own
 data under its own terms, and you must obtain your own credentials and
 comply with those terms. Some restrict redistribution or commercial use.
-See "Data sources and their terms" in finance-backend's README.
+See "Data sources and their terms" in finance-backend's README
+(https://github.com/CodingPA/finance-backend).
 
 NOT INVESTMENT ADVICE. PAPER TRADING ONLY.
 

@@ -59,9 +59,12 @@ export interface SubredditMentionPost {
 
 /** `permalink` (from a SubredditMentionPost, or a source_type: "reddit"
  *  ResearchClip's `source`) is always a relative Reddit path -- this is the
- *  one place that gets turned into a real, clickable URL. */
+ *  one place that gets turned into a real, clickable URL. A clip's `source`
+ *  is user-entered, so the leading "/" is enforced rather than trusted --
+ *  without it, "@evil.com" would build https://reddit.com@evil.com, a link
+ *  to evil.com. */
 export function redditUrl(permalink: string): string {
-  return `https://reddit.com${permalink}`;
+  return `https://reddit.com${permalink.startsWith("/") ? "" : "/"}${permalink}`;
 }
 
 export async function listTrackedSubreddits(): Promise<TrackedSubreddit[]> {

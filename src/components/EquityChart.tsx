@@ -81,7 +81,7 @@ export function EquityChart({
         const d = pts.map((p, i) => `${i === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ");
         return { series: s, d, pts };
       }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- xScale/yScale close over the domain above; series is the real dep
+    // xScale/yScale close over the domain above; series is the real dep.
     [series, xMin, xMax, yMin, yMax],
   );
 

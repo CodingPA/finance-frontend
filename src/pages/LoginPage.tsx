@@ -22,8 +22,13 @@ export function LoginPage() {
       navigate("/");
     } catch (err) {
       // Login 401s don't distinguish "no such user" from "wrong password" —
-      // the API doc says not to try to, so this message stays generic.
-      const message = err instanceof ApiError ? "Invalid email or password." : "Something went wrong. Try again.";
+      // the API doc says not to try to, so this message stays generic. Any
+      // other failure (a 429, nginx's 502 while the backend is down, no
+      // network at all) says nothing about the credentials, so don't blame them.
+      const message =
+        err instanceof ApiError && (err.status === 400 || err.status === 401)
+          ? "Invalid email or password."
+          : "Couldn't sign in right now. Try again in a moment.";
       setError(message);
     } finally {
       setSubmitting(false);

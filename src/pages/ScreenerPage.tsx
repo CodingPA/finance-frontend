@@ -28,6 +28,7 @@ import { getJournal, updateJournal, type CompanyJournal, type JournalPatch } fro
 import { listMediaFiles, uploadMedia, deleteMediaFile, type MediaFile, type MediaStatus } from "../lib/media";
 import { listWikiPages, linkWikiPage, unlinkWikiPage, type WikiPage } from "../lib/wiki";
 import { redditUrl } from "../lib/social";
+import { safeHref } from "../lib/links";
 import { realtime } from "../lib/ws";
 import { Modal } from "../components/Modal";
 import { InfoTip } from "../components/InfoTip";
@@ -989,7 +990,7 @@ export function ScreenerPage() {
                         <td>{formatDate(filing.report_date)}</td>
                         <td>{filing.description}</td>
                         <td>
-                          <a href={filing.url} target="_blank" rel="noopener noreferrer">
+                          <a href={safeHref(filing.url)} target="_blank" rel="noopener noreferrer">
                             View on EDGAR
                           </a>
                         </td>

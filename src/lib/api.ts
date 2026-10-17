@@ -68,9 +68,25 @@ export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   return data as T;
 }
 
+// Refresh tokens rotate on every call, so two refreshes racing on the same
+// stored token would have the loser 401 and log the user out. Every caller
+// (parallel apiFetch 401s, both sockets' 4001 handling, StrictMode's double
+// bootstrap in dev) shares whichever refresh is already in flight instead.
+let refreshInFlight: Promise<boolean> | null = null;
+
 /** Refresh the access token in place. Exported for the WebSocket client to
- *  reuse on a 4001 (stale token) close before it retries. */
-export async function refreshAccessToken(): Promise<boolean> {
+ *  reuse on a 4001 (stale token) close before it retries. Resolves false
+ *  without touching the stored token on a 5xx -- e.g. nginx's 502 while the
+ *  backend restarts says nothing about the token, so it's kept for the next
+ *  attempt. Rejects if the backend can't be reached at all. */
+export function refreshAccessToken(): Promise<boolean> {
+  refreshInFlight ??= requestRefresh().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
+}
+
+async function requestRefresh(): Promise<boolean> {
   const refresh = localStorage.getItem(REFRESH_STORAGE_KEY);
   if (!refresh) return false;
 
@@ -80,11 +96,14 @@ export async function refreshAccessToken(): Promise<boolean> {
     body: JSON.stringify({ refresh }),
   });
 
-  if (!res.ok) {
+  // Only a 400/401 means the token itself was rejected (expired,
+  // blacklisted, malformed) -- the session really is over.
+  if (res.status === 400 || res.status === 401) {
     localStorage.removeItem(REFRESH_STORAGE_KEY);
     accessToken = null;
     return false;
   }
+  if (!res.ok) return false;
 
   // Refresh tokens rotate on every call — the response's `refresh` must
   // overwrite the stored one, or the next refresh 401s.
@@ -174,16 +193,18 @@ export async function logout(): Promise<void> {
   localStorage.removeItem(REFRESH_STORAGE_KEY);
 }
 
-/** Called once on app load: silently refresh, then hydrate the user. */
+/** Called once on app load: silently refresh, then hydrate the user. Never
+ *  rejects -- a backend that's down or unreachable just lands on the login
+ *  screen, with the refresh token kept so a reload restores the session once
+ *  the backend is back. */
 export async function bootstrapAuth(): Promise<AuthUser | null> {
-  const refreshed = await refreshAccessToken();
-  if (!refreshed) return null;
-
   try {
+    const refreshed = await refreshAccessToken();
+    if (!refreshed) return null;
     return await fetchMe();
-  } catch {
+  } catch (err) {
     accessToken = null;
-    localStorage.removeItem(REFRESH_STORAGE_KEY);
+    if (err instanceof ApiError && err.status === 401) localStorage.removeItem(REFRESH_STORAGE_KEY);
     return null;
   }
 }

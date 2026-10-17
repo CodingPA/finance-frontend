@@ -204,7 +204,7 @@ export function TradeModal({
     if (expirations.length > 0 && !expirations.includes(expiration)) {
       setExpiration(expirations[0]);
     }
-  }, [expirations]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [expirations]);
 
   const [strikeCount, setStrikeCount] = useState(5);
 

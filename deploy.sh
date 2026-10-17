@@ -6,7 +6,8 @@
 # live deploy the instant it finishes.
 #
 # One-time setup (deploy key, nginx site, certbot) is in README.md's
-# Deployment section, not this script.
+# "How the maintainer's instance is deployed" section, not this script.
+# Pushes to main also run this automatically via .github/workflows/deploy.yml.
 
 set -euo pipefail
 

@@ -251,6 +251,10 @@ export function ChatAssistant() {
     activeConversationIdRef.current = null;
     setItems([]);
     streamingIdRef.current = null;
+    // A reply still streaming for the previous conversation will have its
+    // complete/error event filtered out below (wrong conversation_id), so
+    // nothing else would ever re-enable the composer.
+    setLoading(false);
     stickToBottomRef.current = true;
     setHistoryOpen(false);
     listDashboard()
@@ -262,7 +266,6 @@ export function ChatAssistant() {
         setModelId((current) => current || list.find((m) => m.is_default)?.model_id || list[0]?.model_id || "");
       })
       .catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   // Assistant replies stream in over the same user socket ScreenerPage uses
@@ -406,6 +409,7 @@ export function ChatAssistant() {
     activeConversationIdRef.current = null;
     setItems([]);
     streamingIdRef.current = null;
+    setLoading(false);
     stickToBottomRef.current = true;
     setHistoryOpen(false);
   };
@@ -416,6 +420,7 @@ export function ChatAssistant() {
     activeConversationIdRef.current = id;
     setItems([]);
     streamingIdRef.current = null;
+    setLoading(false);
     stickToBottomRef.current = true;
     try {
       const history = await listConversationMessages(id);

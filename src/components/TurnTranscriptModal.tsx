@@ -11,6 +11,7 @@ import { Modal } from "./Modal";
 import { getTurn, type ModelProvider, type TranscriptBlock, type TranscriptEntry, type TurnDetail } from "../lib/league";
 import { extractGenericMessage } from "../lib/formErrors";
 import { formatDateTime } from "../lib/format";
+import { safeHref } from "../lib/links";
 
 export function TurnTranscriptModal({
   competitorId,
@@ -122,7 +123,7 @@ function AnthropicBlockView({ block }: { block: TranscriptBlock }) {
           {content.map((r, i) => (
             <li key={i}>
               {typeof r.url === "string" ? (
-                <a href={r.url} target="_blank" rel="noopener noreferrer">
+                <a href={safeHref(r.url)} target="_blank" rel="noopener noreferrer">
                   {typeof r.title === "string" ? r.title : r.url}
                 </a>
               ) : (
@@ -268,7 +269,7 @@ function GeminiGroundingView({ entry }: { entry: TranscriptEntry }) {
           return (
             <li key={i}>
               {typeof web.uri === "string" ? (
-                <a href={web.uri} target="_blank" rel="noopener noreferrer">
+                <a href={safeHref(web.uri)} target="_blank" rel="noopener noreferrer">
                   {typeof web.title === "string" ? web.title : web.uri}
                 </a>
               ) : (

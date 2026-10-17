@@ -49,6 +49,8 @@ VITE_GOOGLE_CLIENT_ID=<your-client-id> docker compose up --build
 
 ## Run it without Docker
 
+Needs Node 20.19+ or 22.12+ (Vite 7's floor; CI and the Docker image use 24).
+
 ```
 npm install
 cp .env.example .env.local   # fill in VITE_GOOGLE_CLIENT_ID if testing Google sign-in

@@ -26,6 +26,9 @@ jobs:
     # Only the maintainer's repo has DEPLOY_SSH_KEY -- without the repository
     # check, every fork's push to main would run this job and fail.
     if: github.repository == 'CodingPA/finance-frontend' && github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # DEPLOY_SSH_KEY lives in this environment, which only main may deploy
+    # from -- a workflow on any other branch can't read it.
+    environment: production
     runs-on: ubuntu-latest
     steps:
       - name: Run deploy script on server
